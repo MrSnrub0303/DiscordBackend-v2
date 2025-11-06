@@ -1,77 +1,68 @@
-require('dotenv').config();
+require("dotenv").config();
 
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const questions = require("./questions.json");
 const cors = require("cors");
-const StorageService = require('./services/StorageService');
-const { logger, safeLog } = require('./utils/logger');
+const StorageService = require("./services/StorageService");
+const { logger, safeLog } = require("./utils/logger");
 
 const app = express();
 app.use(express.json());
-app.use(cors({
-  origin: [
-    'http://127.0.0.1', 
-    'http://localhost:5173', 
-    'https://1414187165146943518.discordsays.com',  // Discord Activity domain
-    'https://discord-frontend-virid.vercel.app',  // Production frontend
-    'https://discordbackend-xggi.onrender.com'  // Production backend (self)
-  ],
-  credentials: true,
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: [
+      "http://127.0.0.1",
+      "http://localhost:5173",
+      "https://1414187165146943518.discordsays.com",
+      "https://discord-frontend-virid.vercel.app",
+      "https://discordbackend-xggi.onrender.com",
+    ],
+    credentials: true,
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 const PORT = process.env.PORT || 3001;
 const CLIENT_ID = process.env.VITE_DISCORD_CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const MAX_TIME = 20;
 
-// Scoring configuration (matching client-side)
-const MAX_POINTS = 150; // points for an instant (maximum)
-const SCORING_EXPONENT = 2; // power curve exponent for time-based scoring
+const MAX_POINTS = 150;
+const SCORING_EXPONENT = 2;
 
-const ROOM_CLEANUP_INTERVAL = 1000 * 60 * 5; // 5 minutes (more frequent cleanup)
-const ROOM_INACTIVE_THRESHOLD = 1000 * 60 * 15; // 15 minutes (shorter threshold for fresh starts)
-const GRACE_PERIOD_MAX = 1000 * 10; // 10 seconds max grace period for expired questions
+const ROOM_CLEANUP_INTERVAL = 1000 * 60 * 5;
+const ROOM_INACTIVE_THRESHOLD = 1000 * 60 * 15;
+const GRACE_PERIOD_MAX = 1000 * 10;
 
-// Daily reset configuration
-const LEADERBOARD_RESET_HOUR = 0; // Reset at midnight UTC
+const LEADERBOARD_RESET_HOUR = 0;
 const LEADERBOARD_RESET_MINUTE = 0;
 
-// Analytics tracking
 const analytics = {
   totalGamesPlayed: 0,
   totalQuestionsAnswered: 0,
   activeChannels: new Set(),
   dailyStats: {
-    date: new Date().toISOString().split('T')[0],
+    date: new Date().toISOString().split("T")[0],
     gamesPlayed: 0,
     questionsAnswered: 0,
-    uniquePlayers: new Set()
-  }
+    uniquePlayers: new Set(),
+  },
 };
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
-  // console.error("Missing VITE_DISCORD_CLIENT_ID or CLIENT_SECRET env vars");
   process.exit(1);
 }
 
-// Use native fetch from global (Node 18+)
 const fetch = global.fetch;
 
 if (!fetch) {
-  // console.error("Global fetch not found — please upgrade Node.js to 18+");
   process.exit(1);
 }
 
-// POST /api/token -- exchange `code` (from embedded SDK) for an access_token
 app.post("/api/token", async (req, res) => {
-  // console.log('🔍 /api/token endpoint hit');
-  // console.log('Headers:', req.headers);
-  // console.log('Body:', req.body);
-  
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: "missing code" });
 
@@ -89,20 +80,14 @@ app.post("/api/token", async (req, res) => {
       body,
     });
     const json = await resp.json();
-    // console.log('✅ Discord OAuth response:', json);
-    return res.json(json); // contains access_token etc
+
+    return res.json(json);
   } catch (err) {
-    // console.error("Error fetching token:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Fallback endpoint for /token (Discord URL mapping strips /api prefix)
 app.post("/token", async (req, res) => {
-  // console.log('🔧 /token endpoint hit (Discord URL mapping stripped /api prefix)');
-  // console.log('Headers:', req.headers);
-  // console.log('Body:', req.body);
-  
   const { code } = req.body;
   if (!code) return res.status(400).json({ error: "missing code" });
 
@@ -120,27 +105,29 @@ app.post("/token", async (req, res) => {
       body,
     });
     const json = await resp.json();
-    // console.log('✅ Discord OAuth response via /token:', json);
-    return res.json(json); // contains access_token etc
+
+    return res.json(json);
   } catch (err) {
-    // console.error("Error fetching token via /token:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Health check endpoint for socket connection
 app.get("/api/health", (req, res) => {
-  // console.log('🏥 Health check endpoint hit');
-  res.json({ status: "healthy", server: "quiz-backend", timestamp: new Date().toISOString() });
+  res.json({
+    status: "healthy",
+    server: "quiz-backend",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// Fallback health endpoint (Discord strips /api prefix)
 app.get("/health", (req, res) => {
-  // console.log('🏥 Fallback health check endpoint hit (no /api prefix)');
-  res.json({ status: "healthy", server: "quiz-backend", timestamp: new Date().toISOString() });
+  res.json({
+    status: "healthy",
+    server: "quiz-backend",
+    timestamp: new Date().toISOString(),
+  });
 });
 
-// /api/me (server helper): return user info from access token
 app.get("/api/me", async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: "missing auth" });
@@ -153,33 +140,27 @@ app.get("/api/me", async (req, res) => {
     const user = await resp.json();
     res.json(user);
   } catch (err) {
-    // console.error("Error fetching /api/me:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Analytics endpoint - requires admin authentication
 app.get("/api/analytics", async (req, res) => {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ error: "missing auth" });
   const token = auth.replace(/^Bearer\s+/i, "");
-  
+
   try {
-    // Verify admin user
     const resp = await fetch("https://discord.com/api/users/@me", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!resp.ok) return res.status(401).json({ error: "invalid token" });
     const user = await resp.json();
-    
-    // For now, you could check against a list of admin user IDs
-    // In production, you'd want proper role-based access control
-    const isAdmin = process.env.ADMIN_USER_IDS?.split(',').includes(user.id);
+
+    const isAdmin = process.env.ADMIN_USER_IDS?.split(",").includes(user.id);
     if (!isAdmin) {
       return res.status(403).json({ error: "unauthorized" });
     }
 
-    // Return analytics data
     res.json({
       totalGamesPlayed: analytics.totalGamesPlayed,
       totalQuestionsAnswered: analytics.totalQuestionsAnswered,
@@ -188,486 +169,499 @@ app.get("/api/analytics", async (req, res) => {
         date: analytics.dailyStats.date,
         gamesPlayed: analytics.dailyStats.gamesPlayed,
         questionsAnswered: analytics.dailyStats.questionsAnswered,
-        uniquePlayers: analytics.dailyStats.uniquePlayers.size
+        uniquePlayers: analytics.dailyStats.uniquePlayers.size,
       },
-      currentSessions: Object.keys(rooms).length
+      currentSessions: Object.keys(rooms).length,
     });
   } catch (err) {
-    // console.error("Error in analytics endpoint:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// Health check endpoint for HTTP-based socket alternative
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
     timestamp: Date.now(),
-    message: 'Server is running',
-    environment: 'production'
+    message: "Server is running",
+    environment: "production",
   });
 });
 
-// Test endpoint for Discord URL mapping
-app.get('/api/discord-test', (req, res) => {
-  res.json({ 
-    message: 'Discord URL mapping is working!',
+app.get("/api/discord-test", (req, res) => {
+  res.json({
+    message: "Discord URL mapping is working!",
     timestamp: Date.now(),
-    headers: req.headers
+    headers: req.headers,
   });
 });
 
-// Game event endpoint for HTTP-based communication
-app.post('/api/game-event', (req, res) => {
-  // console.log('🎮 [/api/game-event] Received request:', req.body);
+app.post("/api/game-event", (req, res) => {
   const { event, data } = req.body;
-  
+
   try {
-    // Ensure room exists for HTTP requests (since no Socket.IO connection creates it)
     if (data.roomId && !rooms[data.roomId]) {
-      // console.log(`🏠 Creating room for HTTP request: ${data.roomId}`);
-      
       rooms[data.roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
-        scores: {}, // Start with empty scores - only restore when there's an active game
-        playerNames: {}, // Track player names for display
-        questionHistory: []
+        scores: {},
+        playerNames: {},
+        questionHistory: [],
       };
     }
-    
-    // Handle the same events as socket.io but via HTTP
+
     switch (event) {
-      case 'start_question':
-        // console.log(`🎯 [/api/game-event] Starting question for room: ${data.roomId}`);
-        
-        // Check if room exists
+      case "start_question":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // If not forcing new question and room has existing question, return it
+
           if (!data.forceNew && room.currentQuestion) {
-            // console.log('📋 Returning existing question for synchronization (roundEnded:', room.roundEnded, ')');
-            
-            // Calculate remaining time based on when question started
             const now = Date.now();
             const questionStartTime = room.questionStartTime || now;
             const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
             const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-            
-            res.json({ 
-              success: true, 
+
+            res.json({
+              success: true,
               question: room.currentQuestion,
               timeLeft: remainingTime,
               startTime: questionStartTime,
-              showResult: room.roundEnded || remainingTime <= 0
+              showResult: room.roundEnded || remainingTime <= 0,
             });
             return;
           }
-          
-          // If forcing new question or no existing question, generate new one
+
           if (data.forceNew) {
-            // console.log('🆕 Force new question requested (Next button clicked)');
           }
-          
-          // Check if someone is already generating a question (prevent race condition)
+
           if (room.generatingQuestion) {
-            // console.log('⏳ Question generation in progress, waiting...');
-            // Wait a bit and check again
             setTimeout(() => {
               if (room.currentQuestion) {
                 const now = Date.now();
                 const questionStartTime = room.questionStartTime || now;
-                const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
+                const elapsedSeconds = Math.floor(
+                  (now - questionStartTime) / 1000,
+                );
                 const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-                
-                res.json({ 
-                  success: true, 
+
+                res.json({
+                  success: true,
                   question: room.currentQuestion,
                   timeLeft: remainingTime,
-                  startTime: questionStartTime
+                  startTime: questionStartTime,
                 });
               } else {
-                res.json({ success: false, error: 'Failed to generate question' });
+                res.json({
+                  success: false,
+                  error: "Failed to generate question",
+                });
               }
             }, 100);
             return;
           }
-          
-          // Mark that we're generating a question (prevent race conditions)
+
           room.generatingQuestion = true;
-          
-          // If forceNew is true (Restart Quiz button), reset all scores
+
           if (data.forceNew) {
-            console.log('🔄 [/api/game-event] Resetting scores for new quiz session');
-            Object.keys(room.players || {}).forEach(playerId => {
+            Object.keys(room.players || {}).forEach((playerId) => {
               if (room.players[playerId]) {
                 room.players[playerId].score = 0;
               }
             });
             room.scores = {};
-            // Clear saved current scores for this room
+
             StorageService.clearCurrentScores(data.roomId);
-            console.log('✅ [/api/game-event] Scores reset complete:', room.scores);
           }
-          
-          // Generate new question - clear round ended state since we're starting fresh
+
           const randomQuestionForSocket = getRandomQuestion();
           const questionStartTime = Date.now();
-          
-          // Update room state with new question
+
           room.currentQuestion = randomQuestionForSocket;
           room.questionStartTime = questionStartTime;
           room.lastActive = new Date();
-          room.gameState = 'playing';
-          room.roundEnded = false; // Reset round ended flag for new question
-          room.currentSelections = {}; // Clear previous selections
-          room.lastSelections = {}; // Clear last selections too
-          room.lastCorrectAnswer = null; // Clear last correct answer
-          room.resultShowStartTime = null; // Clear result show timer for new question
-          room.generatingQuestion = false; // Clear the lock
-          
-          console.log('🆕 Generated new question for room:', randomQuestionForSocket.isCard ? 'Card Question' : 'Trivia Question');
-          console.log('📄 Question details:', {
-            id: randomQuestionForSocket.id,
-            isCard: randomQuestionForSocket.isCard,
-            cardName: randomQuestionForSocket.cardName,
-            cardUrl: randomQuestionForSocket.cardUrl,
-            questionText: randomQuestionForSocket.question ? randomQuestionForSocket.question.substring(0, 50) + '...' : 'N/A'
-          });
-          console.log('🕒 Generated at timestamp:', new Date().toISOString());
-          
-          // For HTTP, return the question directly to the client
-          res.json({ 
-            success: true, 
+          room.gameState = "playing";
+          room.roundEnded = false;
+          room.currentSelections = {};
+          room.lastSelections = {};
+          room.lastCorrectAnswer = null;
+          room.resultShowStartTime = null;
+          room.generatingQuestion = false;
+
+          res.json({
+            success: true,
             question: randomQuestionForSocket,
             timeLeft: MAX_TIME,
-            startTime: questionStartTime
+            startTime: questionStartTime,
           });
           return;
         }
         break;
-      
-      case 'select_option':
-        // console.log(`🎯 Option selected for room: ${data.roomId}`, data);
-        // Handle option selection with competitive flow (allow changing selection)
+
+      case "select_option":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // Store the selection (overwrites previous selection if changed)
+
           if (!room.currentSelections) {
             room.currentSelections = {};
           }
-          
-          // Log if this is a changed selection
+
           const previousSelection = room.currentSelections[data.playerId];
-          const isChange = previousSelection && (
-            (data.optionIndex !== undefined && previousSelection.optionIndex !== data.optionIndex) ||
-            (data.cardAnswer !== undefined && previousSelection.cardAnswer !== data.cardAnswer)
-          );
-          
-          // Create selection object based on question type
+          const isChange =
+            previousSelection &&
+            ((data.optionIndex !== undefined &&
+              previousSelection.optionIndex !== data.optionIndex) ||
+              (data.cardAnswer !== undefined &&
+                previousSelection.cardAnswer !== data.cardAnswer));
+
           const selection = {
             timeTaken: data.timeTaken,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
-          
+
           if (data.cardAnswer !== undefined) {
-            // Card question answer
             selection.cardAnswer = data.cardAnswer;
             selection.isCorrect = data.isCorrect;
-            // console.log(`📊 Player ${data.playerId} ${isChange ? 'changed' : 'submitted'} card answer: "${data.cardAnswer}" (${data.isCorrect ? 'correct' : 'incorrect'})`);
           } else {
-            // Regular trivia question answer
             selection.optionIndex = data.optionIndex;
-            // console.log(`📊 Player ${data.playerId} ${isChange ? 'changed to' : 'selected'} option ${data.optionIndex}`);
           }
-          
+
           room.currentSelections[data.playerId] = selection;
-          
-          // CRITICAL: If round has ended (reveal phase), also update lastSelections
-          // This ensures selections made during grace period appear in reveal
+
           if (room.roundEnded && room.lastSelections) {
-            // Convert to client format and update lastSelections
             if (data.optionIndex !== undefined) {
               room.lastSelections[data.playerId] = data.optionIndex;
             } else if (data.isCorrect !== undefined) {
-              room.lastSelections[data.playerId] = data.isCorrect ? 'correct' : 'incorrect';
+              room.lastSelections[data.playerId] = data.isCorrect
+                ? "correct"
+                : "incorrect";
             }
-            console.log(`🔄 [select_option] Updated lastSelections during reveal for player ${data.playerId}`);
           }
-          
-          // Store player name for display purposes
+
           if (data.playerName) {
             room.playerNames[data.playerId] = data.playerName;
-            console.log(`👤 [/api/game-event] Stored player name: ${data.playerId} -> "${data.playerName}"`);
           } else {
-            console.log(`⚠️ [/api/game-event] No playerName provided for player: ${data.playerId}`);
           }
-          
+
           room.lastActive = new Date();
-          
-          // console.log(`📊 Room ${data.roomId} selections:`, Object.keys(room.currentSelections).length);
-          
-          res.json({ success: true, message: isChange ? 'Selection changed' : 'Selection recorded' });
+
+          res.json({
+            success: true,
+            message: isChange ? "Selection changed" : "Selection recorded",
+          });
           return;
         }
         break;
-        
-      case 'end_round':
-        console.log(`🏁 [/api/game-event] END_ROUND received for room: ${data.roomId}`);
-        // Handle round completion and reveal all selections
+
+      case "end_round":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          console.log(`🏁 [/api/game-event] Room state before end_round:`, {
-            roomId: data.roomId,
-            roundEnded: room.roundEnded,
-            hasCurrentQuestion: !!room.currentQuestion,
-            currentSelectionsCount: Object.keys(room.currentSelections || {}).length,
-            currentSelections: room.currentSelections || {}
-          });
-          
-          // Prevent duplicate round endings
+
           if (room.roundEnded) {
-            console.log('⚠️ [/api/game-event] Round already ended, skipping duplicate request');
-            res.json({ 
-              success: true, 
-              action: 'round_complete',
+            res.json({
+              success: true,
+              action: "round_complete",
               data: {
                 selections: room.lastSelections || {},
                 scores: room.scores || {},
                 playerNames: room.playerNames || {},
-                correctAnswer: room.lastCorrectAnswer
-              }
+                correctAnswer: room.lastCorrectAnswer,
+              },
             });
             return;
           }
-          
-          // Mark round as ended
+
           room.roundEnded = true;
-          
-          // Process selections and calculate scores
+
           const roundSelections = room.currentSelections || {};
           const currentQuestion = room.currentQuestion;
-          
+
           if (currentQuestion) {
             if (currentQuestion.isCard) {
-              // console.log('🎯 Scoring card question with answer:', currentQuestion.cardName);
             } else {
-              // console.log('🎯 Scoring trivia question:', currentQuestion.question);
-              // console.log('🎯 Correct answer:', currentQuestion.answer);
-              // console.log('🎯 Options:', currentQuestion.options);
             }
-            
-            // Calculate scores based on correct answers and time taken
+
             Object.entries(roundSelections).forEach(([playerId, selection]) => {
               if (!room.scores) room.scores = {};
               if (!room.scores[playerId]) room.scores[playerId] = 0;
-              
+
               let isCorrect = false;
-              
+
               if (currentQuestion.isCard) {
-                // For card questions, check if the player submitted a correct answer
                 isCorrect = selection.isCorrect === true;
-                // console.log(`🎯 Card Question - Player ${playerId} answer was ${isCorrect ? 'correct' : 'incorrect'}`);
               } else {
-                // For trivia questions, check option index against correct answer
-                const correctIndex = currentQuestion.options?.findIndex(opt => 
-                  opt.startsWith(currentQuestion.answer)
+                const correctIndex = currentQuestion.options?.findIndex((opt) =>
+                  opt.startsWith(currentQuestion.answer),
                 );
                 isCorrect = selection.optionIndex === correctIndex;
-                // console.log(`🎯 Trivia Question - Player ${playerId} selected option ${selection.optionIndex}, correct index is ${correctIndex}`);
-              }
-              
-              if (isCorrect) {
-                // Calculate time-based points
-                const points = calculatePointsFromTime(selection.timeTaken);
-                room.scores[playerId] += points;
-                // console.log(`✅ Player ${playerId} got it right! Time taken: ${selection.timeTaken}s, Points awarded: ${points}, New total: ${room.scores[playerId]}`);
-              } else {
-                // console.log(`❌ Player ${playerId} got it wrong. Score stays: ${room.scores[playerId]}`);
               }
 
+              if (isCorrect) {
+                const points = calculatePointsFromTime(selection.timeTaken);
+                room.scores[playerId] += points;
+              } else {
+              }
             });
-            
-            // console.log('🏆 Final room scores:', room.scores);
-            
-            // Save current scores for persistence across room recreation
+
             StorageService.saveCurrentScores(data.roomId, room.scores);
           } else {
-            // console.log('⚠️ No current question found for scoring');
           }
-          
-          // Convert selections format for client
+
           const clientSelections = {};
           Object.entries(roundSelections).forEach(([playerId, selection]) => {
             if (selection.optionIndex !== undefined) {
-              clientSelections[playerId] = selection.optionIndex; // Trivia question
+              clientSelections[playerId] = selection.optionIndex;
             } else {
-              clientSelections[playerId] = selection.isCorrect ? 'correct' : 'incorrect'; // Card question
+              clientSelections[playerId] = selection.isCorrect
+                ? "correct"
+                : "incorrect";
             }
           });
-          
-          // Store results for duplicate requests - get correct answer based on question type
-          const correctAnswer = currentQuestion?.isCard ? currentQuestion.cardName : currentQuestion?.answer;
+
+          const correctAnswer = currentQuestion?.isCard
+            ? currentQuestion.cardName
+            : currentQuestion?.answer;
           room.lastSelections = clientSelections;
           room.lastCorrectAnswer = correctAnswer;
-          
-          console.log(`📊 [/api/game-event end_round] Stored lastSelections:`, {
-            roomId: data.roomId,
-            roundSelectionsKeys: Object.keys(roundSelections),
-            roundSelections: JSON.stringify(roundSelections),
-            clientSelectionsKeys: Object.keys(clientSelections),
-            clientSelections,
-            lastSelections: room.lastSelections,
-            playerNames: room.playerNames
-          });
-          
-          // Send reveal data
+
           const responseData = {
-            success: true, 
-            action: 'round_complete',
+            success: true,
+            action: "round_complete",
             data: {
               selections: clientSelections,
               scores: room.scores || {},
               playerNames: room.playerNames || {},
-              correctAnswer: correctAnswer
-            }
+              correctAnswer: correctAnswer,
+            },
           };
-          
-          console.log('📤 [/api/game-event] Sending round completion with playerNames:', room.playerNames);
+
           res.json(responseData);
-          
-          // Clear selections for next round but keep question until next round starts
+
           room.currentSelections = {};
-          // Mark round as ended but don't clear question yet - let next question request handle it
+
           room.roundEnded = true;
-          // console.log('🔄 [/api/game-event] Round marked as completed, ready for next question');
+
           return;
         }
         break;
-      
-      case 'reset_scores':
-        // console.log(`🔄 [/api/game-event] Resetting scores for room: ${data.roomId}`);
-        
+
+      case "reset_scores":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // Reset all scores to 0
+
           room.scores = {};
-          Object.keys(room.players || {}).forEach(playerId => {
+          Object.keys(room.players || {}).forEach((playerId) => {
             if (room.players[playerId]) {
               room.players[playerId].score = 0;
             }
           });
-          
-          // Clear saved current scores for this room
-          if (StorageService && typeof StorageService.clearCurrentScores === 'function') {
+
+          if (
+            StorageService &&
+            typeof StorageService.clearCurrentScores === "function"
+          ) {
             StorageService.clearCurrentScores(data.roomId);
           }
-          
-          console.log('✅ [/api/game-event] Scores reset for room:', data.roomId);
-          
-          // Broadcast score reset to all clients in the room
+
           if (io) {
-            io.to(data.roomId).emit('scores_reset', {
+            io.to(data.roomId).emit("scores_reset", {
               scores: {},
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
             });
           }
-          
+
           res.json({ success: true, scores: {} });
           return;
         }
         break;
     }
-    
+
     res.json({ success: true });
   } catch (error) {
-    // console.error('Game event error:', error);
-    res.status(500).json({ error: 'Failed to process game event' });
+    res.status(500).json({ error: "Failed to process game event" });
   }
 });
 
-
 function calculatePointsFromTime(timeTaken) {
-  
   if (!timeTaken || timeTaken <= 0) {
- 
     return 0;
   }
-  
-  // Calculate time left (MAX_TIME - timeTaken)
+
   const timeLeft = Math.max(0, MAX_TIME - timeTaken);
-  // console.log(`🔍 timeLeft = MAX_TIME(${MAX_TIME}) - timeTaken(${timeTaken}) = ${timeLeft}`);
-  
-  // Normalize to [0..1] range
+
   const x = Math.max(0, Math.min(1, timeLeft / MAX_TIME));
-  // console.log(`🔍 x = timeLeft(${timeLeft}) / MAX_TIME(${MAX_TIME}) = ${x}`);
-  
-  // Apply power curve: f(x) = MAX_POINTS * x^SCORING_EXPONENT
+
   const raw = MAX_POINTS * Math.pow(x, SCORING_EXPONENT);
-  // console.log(`🔍 raw = MAX_POINTS(${MAX_POINTS}) * x(${x})^${SCORING_EXPONENT} = ${raw}`);
-  
+
   const points = Math.round(raw);
-  // console.log(`🔍 Final points = Math.round(${raw}) = ${points}`);
-  
+
   return points;
 }
 
-// Age of Empires III Home City Cards
 const cardNames = [
-  "Conquistador", "Team Fencing Instructor", "Unction", "Team Spanish Road", "Team Hidalgos",
-  "Native Lore", "Advanced Trading Post", "Town Militia", "Pioneers", "Advanced Mill",
-  "Advanced Market", "Advanced Estate", "Advanced Dock", "Llama Ranching", "Ranching",
-  "Fish Market", "Schooners", "Sawmills", "Exotic Hardwoods", "Team Ironmonger",
-  "Stockyards", "Furrier", "Rum Distillery", "Capitalism", "Stonemasons",
-  "Land Grab", "Team Coastal Defenses", "Tercio Tactics", "Reconquista", "Advanced Arsenal",
-  "Extensive Fortifications", "Rendering Plant", "Silversmith", "Sustainable Agriculture", "Spice Trade",
-  "Medicine", "Cigar Roller", "Spanish Galleons", "Theaters", "Caballeros",
-  "Liberation March", "Spanish Gold", "Armada", "Mercenary Loyalty", "Grenade Launchers",
-  "Improved Buildings", "Blood Brothers", "Peninsular Guerrillas", "Advanced Balloon", "Florence Nightingale",
-  "Virginia Company", "South Sea Bubble", "Fulling Mills", "Yeomen", "Siege Archery",
-  "Master Surgeons", "Northwest Passage", "Distributivism", "Wilderness Warfare", "French Royal Army",
-  "Naval Gunners", "Thoroughbreds", "Gribeauval System", "Navigator", "Agents",
-  "Portuguese White Fleet", "Carracks", "Stadhouder", "Admiral Tromp", "Tulip Speculation",
-  "Willem", "Polar Explorer", "Engineering School", "Suvorov Reforms", "Ransack",
-  "Polk", "Offshore Support", "Germantown Farmers", "Guild Artisans", "Spanish Riding School",
-  "Mosque Construction", "Flight Archery", "New Ways", "Beaver Wars", "Medicine Wheels",
-  "Black Arrow", "Silent Strike", "Smoking Mirror", "Boxer Rebellion", "Western Reforms",
-  "Advanced Wonders", "Seven Lucky Gods", "Desert Terror", "Foreign Logging", "Salt Ponds",
-  "Imperial Unity", "Duelist", "Trample Tactics", "Virginia Oak", "Coffee Mill Guns",
-  "Bushburning", "Beekeepers", "Koose", "Kingslayer", "Barbacoa",
-  "Man of Destiny", "Freemasons", "Admirality", "Advanced Commanderies", "Bailiff",
-  "Fire Towers", "Native Treaties", "Advanced Scouts", "Grain Market", "Chinampa",
-  "Knight Hitpoints", "Knight Attack", "Aztec Mining", "Ritual Gladiators", "Artificial Islands",
-  "Knight Combat", "Scorched Earth", "Aztec Fortification", "Chichimeca Rebellion", "Wall of Skulls",
-  "Old Ways", "Improved Warships", "Terraced Houses", "Rangers", "Textile Mill",
-  "Refrigeration", "Royal Mint", "Greenwich Time", "Dowager Empress", "Year of the Goat",
-  "Year of the Tiger", "Year of the Ox", "Year of the Dragon", "Acupuncture",
-  "Repelling Volley", "Native Crafts", "Colbertism", "Cartridge Currency", "European Cannons",
-  "Voyageur", "Solingen Steel", "Town Destroyer", "Battlefield Construction", "Conservative Tactics",
-  "Dane Guns"
+  "Conquistador",
+  "Team Fencing Instructor",
+  "Unction",
+  "Team Spanish Road",
+  "Team Hidalgos",
+  "Native Lore",
+  "Advanced Trading Post",
+  "Town Militia",
+  "Pioneers",
+  "Advanced Mill",
+  "Advanced Market",
+  "Advanced Estate",
+  "Advanced Dock",
+  "Llama Ranching",
+  "Ranching",
+  "Fish Market",
+  "Schooners",
+  "Sawmills",
+  "Exotic Hardwoods",
+  "Team Ironmonger",
+  "Stockyards",
+  "Furrier",
+  "Rum Distillery",
+  "Capitalism",
+  "Stonemasons",
+  "Land Grab",
+  "Team Coastal Defenses",
+  "Tercio Tactics",
+  "Reconquista",
+  "Advanced Arsenal",
+  "Extensive Fortifications",
+  "Rendering Plant",
+  "Silversmith",
+  "Sustainable Agriculture",
+  "Spice Trade",
+  "Medicine",
+  "Cigar Roller",
+  "Spanish Galleons",
+  "Theaters",
+  "Caballeros",
+  "Liberation March",
+  "Spanish Gold",
+  "Armada",
+  "Mercenary Loyalty",
+  "Grenade Launchers",
+  "Improved Buildings",
+  "Blood Brothers",
+  "Peninsular Guerrillas",
+  "Advanced Balloon",
+  "Florence Nightingale",
+  "Virginia Company",
+  "South Sea Bubble",
+  "Fulling Mills",
+  "Yeomen",
+  "Siege Archery",
+  "Master Surgeons",
+  "Northwest Passage",
+  "Distributivism",
+  "Wilderness Warfare",
+  "French Royal Army",
+  "Naval Gunners",
+  "Thoroughbreds",
+  "Gribeauval System",
+  "Navigator",
+  "Agents",
+  "Portuguese White Fleet",
+  "Carracks",
+  "Stadhouder",
+  "Admiral Tromp",
+  "Tulip Speculation",
+  "Willem",
+  "Polar Explorer",
+  "Engineering School",
+  "Suvorov Reforms",
+  "Ransack",
+  "Polk",
+  "Offshore Support",
+  "Germantown Farmers",
+  "Guild Artisans",
+  "Spanish Riding School",
+  "Mosque Construction",
+  "Flight Archery",
+  "New Ways",
+  "Beaver Wars",
+  "Medicine Wheels",
+  "Black Arrow",
+  "Silent Strike",
+  "Smoking Mirror",
+  "Boxer Rebellion",
+  "Western Reforms",
+  "Advanced Wonders",
+  "Seven Lucky Gods",
+  "Desert Terror",
+  "Foreign Logging",
+  "Salt Ponds",
+  "Imperial Unity",
+  "Duelist",
+  "Trample Tactics",
+  "Virginia Oak",
+  "Coffee Mill Guns",
+  "Bushburning",
+  "Beekeepers",
+  "Koose",
+  "Kingslayer",
+  "Barbacoa",
+  "Man of Destiny",
+  "Freemasons",
+  "Admirality",
+  "Advanced Commanderies",
+  "Bailiff",
+  "Fire Towers",
+  "Native Treaties",
+  "Advanced Scouts",
+  "Grain Market",
+  "Chinampa",
+  "Knight Hitpoints",
+  "Knight Attack",
+  "Aztec Mining",
+  "Ritual Gladiators",
+  "Artificial Islands",
+  "Knight Combat",
+  "Scorched Earth",
+  "Aztec Fortification",
+  "Chichimeca Rebellion",
+  "Wall of Skulls",
+  "Old Ways",
+  "Improved Warships",
+  "Terraced Houses",
+  "Rangers",
+  "Textile Mill",
+  "Refrigeration",
+  "Royal Mint",
+  "Greenwich Time",
+  "Dowager Empress",
+  "Year of the Goat",
+  "Year of the Tiger",
+  "Year of the Ox",
+  "Year of the Dragon",
+  "Acupuncture",
+  "Repelling Volley",
+  "Native Crafts",
+  "Colbertism",
+  "Cartridge Currency",
+  "European Cannons",
+  "Voyageur",
+  "Solingen Steel",
+  "Town Destroyer",
+  "Battlefield Construction",
+  "Conservative Tactics",
+  "Dane Guns",
 ];
 
-// Helper: Convert card name to image path (for client-side)
 const getCardImagePath = (cardName) => {
-  // Convert spaces to underscores and remove special characters for filename  
-  const fileName = cardName.replace(/\s+/g, '_').replace(/[:/]/g, '');
-  // Return path that client can dynamically import
+  const fileName = cardName.replace(/\s+/g, "_").replace(/[:/]/g, "");
+
   return `cards/${fileName}.png`;
 };
 
-// Helper function to pick a random question (including cards)
 function getRandomQuestion() {
-  // 50% chance to pick a HC card "guess the card" style question (perfectly balanced)
   const pickCard = Math.random() < 0.45 && cardNames.length > 0;
 
   if (pickCard) {
@@ -679,555 +673,446 @@ function getRandomQuestion() {
       isCard: true,
       cardName: name,
       cardUrl: url,
-      id: `card_${idx}_${Date.now()}` // Include timestamp for uniqueness
+      id: `card_${idx}_${Date.now()}`,
     };
   }
 
-  // Otherwise pick trivia question
   const randomIndex = Math.floor(Math.random() * questions.length);
   const question = questions[randomIndex];
-  
-  // Return question in the same format as the JSON file with UNIQUE string ID
-  // Use timestamp to ensure each question instance has a unique ID
+
   return {
     question: question.question,
     options: question.options,
     answer: question.answer,
-    id: `trivia_${randomIndex}_${Date.now()}`, // Include timestamp for uniqueness
-    isCard: false
+    id: `trivia_${randomIndex}_${Date.now()}`,
+    isCard: false,
   };
 }
 
-// Fallback game event endpoint (Discord strips /api prefix)
-app.post('/game-event', (req, res) => {
-  // console.log('🎮 [/game-event] Fallback endpoint hit:', req.body);
+app.post("/game-event", (req, res) => {
   const { event, data } = req.body;
-  
+
   try {
-    // Ensure room exists for HTTP requests (since no Socket.IO connection creates it)
     if (data.roomId && !rooms[data.roomId]) {
-      // console.log(`🏠 Creating room for HTTP request: ${data.roomId}`);
-      
       rooms[data.roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
-        scores: {}, // Start with empty scores - only restore when there's an active game
-        playerNames: {}, // Track player names for display
-        questionHistory: []
+        scores: {},
+        playerNames: {},
+        questionHistory: [],
       };
     }
-    
-    // Handle the same events as socket.io but via HTTP
+
     switch (event) {
-      case 'start_question':
-        // console.log(`🎯 [/game-event] Starting question for room: ${data.roomId}`);
-        
-        // Check if room exists
+      case "start_question":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // If not forcing new question and room has existing question, return it
+
           if (!data.forceNew && room.currentQuestion) {
-            // console.log('📋 [/game-event] Returning existing question for synchronization (roundEnded:', room.roundEnded, ')');
-            
-            // Calculate remaining time based on when question started
             const now = Date.now();
             const questionStartTime = room.questionStartTime || now;
             const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
             const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-            
-            res.json({ 
-              success: true, 
-              action: 'question_started',
+
+            res.json({
+              success: true,
+              action: "question_started",
               data: {
                 question: room.currentQuestion,
                 timeLeft: remainingTime,
                 startTime: questionStartTime,
-                showResult: room.roundEnded || remainingTime <= 0
-              }
+                showResult: room.roundEnded || remainingTime <= 0,
+              },
             });
             return;
           }
-          
-          // If forcing new question or no existing question, generate new one
+
           if (data.forceNew) {
-            // console.log('🆕 [/game-event] Force new question requested (Next button clicked)');
           }
-          
-          // Check if someone is already generating a question (prevent race condition)
+
           if (room.generatingQuestion) {
-            // console.log('⏳ Question generation in progress, waiting...');
-            // Wait a bit and check again
             setTimeout(() => {
               if (room.currentQuestion) {
                 const now = Date.now();
                 const questionStartTime = room.questionStartTime || now;
-                const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
+                const elapsedSeconds = Math.floor(
+                  (now - questionStartTime) / 1000,
+                );
                 const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-                
-                res.json({ 
-                  success: true, 
-                  action: 'question_started',
+
+                res.json({
+                  success: true,
+                  action: "question_started",
                   data: {
                     question: room.currentQuestion,
                     timeLeft: remainingTime,
-                    startTime: questionStartTime
-                  }
+                    startTime: questionStartTime,
+                  },
                 });
               } else {
-                res.json({ success: false, error: 'Failed to generate question' });
+                res.json({
+                  success: false,
+                  error: "Failed to generate question",
+                });
               }
             }, 100);
             return;
           }
-          
-          // Mark that we're generating a question
+
           room.generatingQuestion = true;
-          
-          // If room already has an active question and game is in progress, return existing question
-          if (room.currentQuestion && room.gameState === 'playing' && !room.roundEnded) {
-            // console.log('📋 Returning existing question for synchronization');
+
+          if (
+            room.currentQuestion &&
+            room.gameState === "playing" &&
+            !room.roundEnded
+          ) {
             const questionResponse = {
               question: room.currentQuestion,
               timeLeft: MAX_TIME,
-              startTime: Date.now()
+              startTime: Date.now(),
             };
-            res.json({ 
-              success: true, 
-              action: 'question_started',
-              data: questionResponse 
+            res.json({
+              success: true,
+              action: "question_started",
+              data: questionResponse,
             });
             return;
           }
-          
-          // If room already has an active question and game is in progress, return existing question
-          if (room.currentQuestion && room.gameState === 'playing' && !room.roundEnded) {
-            // console.log('📋 Returning existing question for synchronization');
-            
-            // Calculate remaining time based on when question started
+
+          if (
+            room.currentQuestion &&
+            room.gameState === "playing" &&
+            !room.roundEnded
+          ) {
             const now = Date.now();
             const questionStartTime = room.questionStartTime || now;
             const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
             const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-            
+
             const questionResponse = {
               question: room.currentQuestion,
               timeLeft: remainingTime,
-              startTime: questionStartTime
+              startTime: questionStartTime,
             };
-            res.json({ 
-              success: true, 
-              action: 'question_started',
-              data: questionResponse 
+            res.json({
+              success: true,
+              action: "question_started",
+              data: questionResponse,
             });
             return;
           }
-          
-          // If forceNew is true (Restart Quiz button), reset all scores
+
           if (data.forceNew) {
-            // console.log('🔄 [Game Event] Resetting scores for new quiz session');
-            Object.keys(room.players).forEach(playerId => {
+            Object.keys(room.players).forEach((playerId) => {
               room.players[playerId].score = 0;
             });
             room.scores = {};
-            // Clear saved current scores for this room
+
             StorageService.clearCurrentScores(data.roomId);
           }
-          
-          // Generate new question only if no active question or round ended
+
           const randomQuestion = getRandomQuestion();
           const questionStartTime = Date.now();
-          
-          // Update room state with new question
+
           room.currentQuestion = randomQuestion;
           room.questionStartTime = questionStartTime;
           room.lastActive = new Date();
-          room.gameState = 'playing';
+          room.gameState = "playing";
           room.roundEnded = false;
-          room.currentSelections = {}; // Clear previous selections
-          room.lastSelections = {}; // Clear last selections too
-          room.lastCorrectAnswer = null; // Clear last correct answer
-          room.resultShowStartTime = null; // Clear result show timer for new question
-          room.generatingQuestion = false; // Clear the lock
-          
-          // console.log('🆕 Generated new question for room:', randomQuestion.isCard ? 'Card Question' : 'Trivia Question');
-          
+          room.currentSelections = {};
+          room.lastSelections = {};
+          room.lastCorrectAnswer = null;
+          room.resultShowStartTime = null;
+          room.generatingQuestion = false;
+
           const questionResponse = {
             question: randomQuestion,
             timeLeft: MAX_TIME,
-            startTime: questionStartTime
+            startTime: questionStartTime,
           };
-          
-          res.json({ 
-            success: true, 
-            action: 'question_started',
-            data: questionResponse 
+
+          res.json({
+            success: true,
+            action: "question_started",
+            data: questionResponse,
           });
           return;
         }
         break;
-      
-      case 'select_option':
-        // console.log(`🎯 Option selected for room: ${data.roomId}`, data);
-        // Handle option selection with competitive flow (allow changing selection)
+
+      case "select_option":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // Store the selection (overwrites previous selection if changed)
+
           if (!room.currentSelections) {
             room.currentSelections = {};
           }
-          
-          // Log if this is a changed selection
+
           const previousSelection = room.currentSelections[data.playerId];
-          const isChange = previousSelection && (
-            (data.optionIndex !== undefined && previousSelection.optionIndex !== data.optionIndex) ||
-            (data.cardAnswer !== undefined && previousSelection.cardAnswer !== data.cardAnswer)
-          );
-          
-          // Create selection object based on question type
+          const isChange =
+            previousSelection &&
+            ((data.optionIndex !== undefined &&
+              previousSelection.optionIndex !== data.optionIndex) ||
+              (data.cardAnswer !== undefined &&
+                previousSelection.cardAnswer !== data.cardAnswer));
+
           const selection = {
             timeTaken: data.timeTaken,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           };
-          
+
           if (data.cardAnswer !== undefined) {
-            // Card question answer
             selection.cardAnswer = data.cardAnswer;
             selection.isCorrect = data.isCorrect;
-            // console.log(`📊 Player ${data.playerId} ${isChange ? 'changed' : 'submitted'} card answer: "${data.cardAnswer}" (${data.isCorrect ? 'correct' : 'incorrect'})`);
           } else {
-            // Regular trivia question answer
             selection.optionIndex = data.optionIndex;
-            // console.log(`📊 Player ${data.playerId} ${isChange ? 'changed to' : 'selected'} option ${data.optionIndex}`);
           }
-          
+
           room.currentSelections[data.playerId] = selection;
-          
-          // CRITICAL: If round has ended (reveal phase), also update lastSelections
-          // This ensures selections made during grace period appear in reveal
+
           if (room.roundEnded && room.lastSelections) {
-            // Convert to client format and update lastSelections
             if (data.optionIndex !== undefined) {
               room.lastSelections[data.playerId] = data.optionIndex;
             } else if (data.isCorrect !== undefined) {
-              room.lastSelections[data.playerId] = data.isCorrect ? 'correct' : 'incorrect';
+              room.lastSelections[data.playerId] = data.isCorrect
+                ? "correct"
+                : "incorrect";
             }
-            console.log(`🔄 [/game-event select_option] Updated lastSelections during reveal for player ${data.playerId}`);
           }
-          
-          // Store player name for display purposes
+
           if (data.playerName) {
             room.playerNames[data.playerId] = data.playerName;
           }
-          
+
           room.lastActive = new Date();
-          
-          // console.log(`📊 Room ${data.roomId} selections:`, Object.keys(room.currentSelections).length);
-          
-          res.json({ success: true, message: isChange ? 'Selection changed' : 'Selection recorded' });
+
+          res.json({
+            success: true,
+            message: isChange ? "Selection changed" : "Selection recorded",
+          });
           return;
         }
-        
+
         res.json({ success: true });
         return;
-        
-      case 'end_round':
-        // console.log(`🏁 [/game-event] Ending round for room: ${data.roomId}`);
-        // Handle round completion and reveal all selections
+
+      case "end_round":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // Prevent duplicate round endings
+
           if (room.roundEnded) {
-            // console.log('⚠️ Round already ended for this room, skipping duplicate request');
-            res.json({ 
-              success: true, 
-              action: 'round_complete',
+            res.json({
+              success: true,
+              action: "round_complete",
               data: {
                 selections: room.lastSelections || {},
                 scores: room.scores || {},
                 playerNames: room.playerNames || {},
-                correctAnswer: room.lastCorrectAnswer
-              }
+                correctAnswer: room.lastCorrectAnswer,
+              },
             });
             return;
           }
-          
-          // Mark round as ended
+
           room.roundEnded = true;
-          
-          // Process selections and calculate scores
+
           const roundSelections = room.currentSelections || {};
           const currentQuestion = room.currentQuestion;
-          
+
           if (currentQuestion) {
             if (currentQuestion.isCard) {
-              // console.log('🎯 Scoring card question with answer:', currentQuestion.cardName);
             } else {
-              // console.log('🎯 Scoring trivia question:', currentQuestion.question);
-              // console.log('🎯 Correct answer:', currentQuestion.answer);
-              // console.log('🎯 Options:', currentQuestion.options);
             }
-            
-            // Calculate scores based on correct answers and time taken
+
             Object.entries(roundSelections).forEach(([playerId, selection]) => {
               if (!room.scores) room.scores = {};
               if (!room.scores[playerId]) room.scores[playerId] = 0;
-              
+
               let isCorrect = false;
-              
+
               if (currentQuestion.isCard) {
-                // For card questions, check if the player submitted a correct answer
                 isCorrect = selection.isCorrect === true;
-                // console.log(`🎯 Card Question - Player ${playerId} answer was ${isCorrect ? 'correct' : 'incorrect'}`);
               } else {
-                // For trivia questions, check option index against correct answer
-                const correctIndex = currentQuestion.options?.findIndex(opt => 
-                  opt.startsWith(currentQuestion.answer)
+                const correctIndex = currentQuestion.options?.findIndex((opt) =>
+                  opt.startsWith(currentQuestion.answer),
                 );
                 isCorrect = selection.optionIndex === correctIndex;
-                // console.log(`🎯 Trivia Question - Player ${playerId} selected option ${selection.optionIndex}, correct index is ${correctIndex}`);
               }
-              
+
               if (isCorrect) {
-                // Calculate time-based points
                 const points = calculatePointsFromTime(selection.timeTaken);
                 room.scores[playerId] += points;
-                // console.log(`✅ Player ${playerId} got it right! Time taken: ${selection.timeTaken}s, Points awarded: ${points}, New total: ${room.scores[playerId]}`);
               } else {
-                // console.log(`❌ Player ${playerId} got it wrong. Score stays: ${room.scores[playerId]}`);
               }
             });
-            
-            // console.log('🏆 Final room scores:', room.scores);
-            
-            // Save current scores for persistence across room recreation
+
             StorageService.saveCurrentScores(data.roomId, room.scores);
           } else {
-            // console.log('⚠️ No current question found for scoring');
           }
-          
-          // Convert selections format for client
+
           const clientSelections = {};
           Object.entries(roundSelections).forEach(([playerId, selection]) => {
             if (selection.optionIndex !== undefined) {
-              clientSelections[playerId] = selection.optionIndex; // Trivia question
+              clientSelections[playerId] = selection.optionIndex;
             } else {
-              clientSelections[playerId] = selection.isCorrect ? 'correct' : 'incorrect'; // Card question
+              clientSelections[playerId] = selection.isCorrect
+                ? "correct"
+                : "incorrect";
             }
           });
-          
-          // Store results for duplicate requests - get correct answer based on question type
-          const correctAnswer = currentQuestion?.isCard ? currentQuestion.cardName : currentQuestion?.answer;
+
+          const correctAnswer = currentQuestion?.isCard
+            ? currentQuestion.cardName
+            : currentQuestion?.answer;
           room.lastSelections = clientSelections;
           room.lastCorrectAnswer = correctAnswer;
-          
-          // Send reveal data
+
           const responseData = {
-            success: true, 
-            action: 'round_complete',
+            success: true,
+            action: "round_complete",
             data: {
               selections: clientSelections,
               scores: room.scores || {},
               playerNames: room.playerNames || {},
-              correctAnswer: correctAnswer
-            }
+              correctAnswer: correctAnswer,
+            },
           };
-          
-          console.log('📤 [/game-event] Sending round completion with playerNames:', room.playerNames);
+
           res.json(responseData);
-          
-          // Clear selections for next round but keep question until next round starts
+
           room.currentSelections = {};
-          // Mark round as ended but don't clear question yet - let next question request handle it
+
           room.roundEnded = true;
-          // console.log('🔄 [/game-event] Round marked as completed, ready for next question');
+
           return;
         }
         break;
-      
-      case 'reset_scores':
-        // console.log(`🔄 [/game-event] Resetting scores for room: ${data.roomId}`);
-        
+
+      case "reset_scores":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
-          
-          // Reset all scores to 0
+
           room.scores = {};
-          Object.keys(room.players || {}).forEach(playerId => {
+          Object.keys(room.players || {}).forEach((playerId) => {
             if (room.players[playerId]) {
               room.players[playerId].score = 0;
             }
           });
-          
-          // Clear saved current scores for this room
-          if (StorageService && typeof StorageService.clearCurrentScores === 'function') {
+
+          if (
+            StorageService &&
+            typeof StorageService.clearCurrentScores === "function"
+          ) {
             StorageService.clearCurrentScores(data.roomId);
           }
-          
-          console.log('✅ [/game-event] Scores reset for room:', data.roomId);
-          
-          // Broadcast score reset to all clients in the room
+
           if (io) {
-            io.to(data.roomId).emit('scores_reset', {
+            io.to(data.roomId).emit("scores_reset", {
               scores: {},
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
             });
           }
-          
+
           res.json({ success: true, scores: {} });
           return;
         }
         break;
     }
-    
+
     res.json({ success: true });
   } catch (error) {
-    // console.error('Game event error:', error);
-    res.status(500).json({ error: 'Failed to process game event' });
+    res.status(500).json({ error: "Failed to process game event" });
   }
 });
 
-// Game state endpoint for polling (read-only, doesn't generate questions)
-app.get('/api/game-state/:roomId', (req, res) => {
+app.get("/api/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
-  
+
   try {
-    // Ensure room exists (create if needed for HTTP requests)
     if (roomId && !rooms[roomId]) {
-      // console.log(`🏠 [api/game-state] Creating room for request: ${roomId}`);
       rooms[roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
         scores: {},
         playerNames: {},
-        questionHistory: []
+        questionHistory: [],
       };
     }
-    
+
     const room = rooms[roomId];
     if (room && room.currentQuestion) {
-      // Calculate remaining time based on when question started
       let remainingTime = MAX_TIME;
       if (room.questionStartTime) {
         const now = Date.now();
-        const elapsedSeconds = Math.floor((now - room.questionStartTime) / 1000);
+        const elapsedSeconds = Math.floor(
+          (now - room.questionStartTime) / 1000,
+        );
         remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
       }
-      
-      // If question has expired (0 seconds left), check grace period
+
       if (remainingTime <= 0) {
         const now = Date.now();
         const timeSinceStart = now - room.questionStartTime;
-        const gracePeriodExpired = timeSinceStart > (MAX_TIME * 1000 + GRACE_PERIOD_MAX);
-        
-        // DISABLED: Don't auto-clear - let the "Next Question" button handle clearing
-        // This prevents badges from disappearing during reveal phase
-        // The reveal phase should persist until user clicks "Next Question"
-        /*
-        if (gracePeriodExpired) {
-          console.log('🧹 [api/game-state] Grace period expired, but keeping roundEnded=true for persistent reveal. Room:', roomId);
-          // DON'T reset roundEnded - keep reveal phase active until Next Question clicked
-          // room.roundEnded stays true so badges persist
-          // Just clear the question and selections
-          room.currentQuestion = null;
-          room.questionStartTime = null;
-          // room.roundEnded = false;  ← REMOVED: Don't reset reveal phase
-          room.currentSelections = {};
-          room.gameState = 'waiting';
-          
-          // Return clean state
-          res.json({
-            success: true,
-            currentQuestion: null,
-            timeLeft: MAX_TIME,
-            showResult: false,
-            gameState: 'waiting',
-            roundEnded: false,
-            questionStartTime: null,
-            selections: {},
-            scores: room.scores || {},
-            playerNames: room.playerNames || {}
-          });
-          return;
-        }
-        */
-        
-        // Instead of auto-clearing, just keep showing the reveal
-        // Return question with showResult=true based on roundEnded flag
-        
-        // If round has been completed (scored), clear everything
+        const gracePeriodExpired =
+          timeSinceStart > MAX_TIME * 1000 + GRACE_PERIOD_MAX;
+
         if (room.roundEnded) {
-          // console.log('🧹 [api/game-state] Clearing completed question from room:', roomId);
           room.currentQuestion = null;
           room.questionStartTime = null;
           room.roundEnded = false;
           room.currentSelections = {};
-          room.gameState = 'waiting';
-          
-          // Return clean state for fresh start
+          room.gameState = "waiting";
+
           res.json({
             success: true,
             currentQuestion: null,
             timeLeft: MAX_TIME,
             showResult: false,
-            gameState: 'waiting',
+            gameState: "waiting",
             roundEnded: false,
             questionStartTime: null,
             selections: {},
             scores: room.scores || {},
-            playerNames: room.playerNames || {}
+            playerNames: room.playerNames || {},
           });
           return;
         } else {
-          // Time expired but round not yet processed - DON'T show results yet
-          // Wait for client to call end_round to properly set roundEnded flag
-          // This prevents premature reveal before end_round is called
-          const selectionsToSend = room.roundEnded ? (room.lastSelections || {}) : (room.currentSelections || {});
+          const selectionsToSend = room.roundEnded
+            ? room.lastSelections || {}
+            : room.currentSelections || {};
           res.json({
             success: true,
             currentQuestion: room.currentQuestion,
             timeLeft: 0,
-            showResult: room.roundEnded, // CRITICAL: Only show results AFTER end_round is called
-            gameState: 'active',
+            showResult: room.roundEnded,
+            gameState: "active",
             roundEnded: room.roundEnded,
             questionStartTime: room.questionStartTime,
             selections: selectionsToSend,
             scores: room.scores || {},
-            playerNames: room.playerNames || {}
+            playerNames: room.playerNames || {},
           });
           return;
         }
       }
-      
-      // console.log('📋 [api/game-state] Returning existing question for room:', roomId, 'timeLeft:', remainingTime);
-      
-      // CRITICAL: Use lastSelections if round has ended (reveal phase), otherwise currentSelections
-      const selectionsToSend = room.roundEnded ? (room.lastSelections || {}) : (room.currentSelections || {});
-      // CRITICAL: Only show results when roundEnded is true (after end_round event)
-      // Don't trigger reveal just because time <= 0 (prevents premature reveal)
+
+      const selectionsToSend = room.roundEnded
+        ? room.lastSelections || {}
+        : room.currentSelections || {};
+
       const showResultValue = room.roundEnded;
-      console.log(`📤 [api/game-state] Sending selections for room ${roomId}:`, {
-        roundEnded: room.roundEnded,
-        remainingTime,
-        showResult: showResultValue,
-        selectionsToSend,
-        lastSelections: room.lastSelections,
-        currentSelections: room.currentSelections
-      });
       res.json({
         success: true,
         currentQuestion: room.currentQuestion,
@@ -1238,676 +1123,554 @@ app.get('/api/game-state/:roomId', (req, res) => {
         questionStartTime: room.questionStartTime,
         selections: selectionsToSend,
         scores: room.scores || {},
-        playerNames: room.playerNames || {}
+        playerNames: room.playerNames || {},
       });
     } else {
-      // console.log('📋 [game-state] No current question for room:', roomId);
       res.json({
         success: true,
         currentQuestion: null,
         timeLeft: MAX_TIME,
         showResult: false,
-        gameState: 'waiting',
+        gameState: "waiting",
         roundEnded: false,
         questionStartTime: null,
         selections: {},
-        scores: room ? (room.scores || {}) : {},
-        playerNames: room ? (room.playerNames || {}) : {}
+        scores: room ? room.scores || {} : {},
+        playerNames: room ? room.playerNames || {} : {},
       });
     }
   } catch (error) {
-    // console.error('Game state error:', error);
-    res.status(500).json({ error: 'Failed to get game state' });
+    res.status(500).json({ error: "Failed to get game state" });
   }
 });
 
-// Fallback game state endpoint (Discord strips /api prefix)
-app.get('/game-state/:roomId', (req, res) => {
+app.get("/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
-  
+
   try {
-    // Ensure room exists (create if needed for HTTP requests)
     if (roomId && !rooms[roomId]) {
-      // console.log(`🏠 [game-state] Creating room for request: ${roomId}`);
       rooms[roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
         scores: {},
         playerNames: {},
-        questionHistory: []
+        questionHistory: [],
       };
     }
-    
+
     const room = rooms[roomId];
     if (room && room.currentQuestion) {
-      // Calculate remaining time based on when question started
       let remainingTime = MAX_TIME;
       if (room.questionStartTime) {
         const now = Date.now();
-        const elapsedSeconds = Math.floor((now - room.questionStartTime) / 1000);
+        const elapsedSeconds = Math.floor(
+          (now - room.questionStartTime) / 1000,
+        );
         remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
       }
-      
-      // If question has expired (0 seconds left), check grace period
+
       if (remainingTime <= 0) {
         const now = Date.now();
         const timeSinceStart = now - room.questionStartTime;
-        const gracePeriodExpired = timeSinceStart > (MAX_TIME * 1000 + GRACE_PERIOD_MAX);
-        
-        // DISABLED: Don't auto-clear - let the "Next Question" button handle clearing
-        // This prevents badges from disappearing during reveal phase
-        /*
-        if (gracePeriodExpired) {
-          // console.log('🧹 [game-state] Grace period expired, auto-clearing question. Room:', roomId);
-          room.currentQuestion = null;
-          room.questionStartTime = null;
-          room.roundEnded = false;
-          room.currentSelections = {};
-          room.gameState = 'waiting';
-          room.resultShowStartTime = null;
-          
-          // Return clean state
-          res.json({
-            success: true,
-            currentQuestion: null,
-            timeLeft: MAX_TIME,
-            showResult: false,
-            gameState: 'waiting',
-            roundEnded: false,
-            questionStartTime: null,
-            selections: {},
-            scores: room.scores || {},
-            playerNames: room.playerNames || {}
-          });
-          return;
-        }
-        */
-        
-        // DISABLED: Auto-clear logic commented out to preserve reveal phase
-        // Reveal badges should persist until user clicks "Next Question"
-        // Just keep showing the reveal with roundEnded flag
-        
-        // Use roundEnded flag to determine what to send
-        const selectionsToSend = room.roundEnded ? (room.lastSelections || {}) : (room.currentSelections || {});
+        const gracePeriodExpired =
+          timeSinceStart > MAX_TIME * 1000 + GRACE_PERIOD_MAX;
+
+        const selectionsToSend = room.roundEnded
+          ? room.lastSelections || {}
+          : room.currentSelections || {};
         res.json({
           success: true,
           currentQuestion: room.currentQuestion,
           timeLeft: 0,
-          showResult: room.roundEnded, // CRITICAL: Show results when round ended
-          gameState: 'active',
+          showResult: room.roundEnded,
+          gameState: "active",
           roundEnded: room.roundEnded,
           questionStartTime: room.questionStartTime,
           selections: selectionsToSend,
           scores: room.scores || {},
-          playerNames: room.playerNames || {}
+          playerNames: room.playerNames || {},
         });
         return;
       }
-      
-      console.log('📋 [game-state] Returning existing question for room:', roomId, 'timeLeft:', remainingTime, 'questionID:', room.currentQuestion?.id);
-      
-      // CRITICAL: Use lastSelections if round has ended (reveal phase), otherwise currentSelections
-      const selectionsToSend = room.roundEnded ? (room.lastSelections || {}) : (room.currentSelections || {});
+
+      const selectionsToSend = room.roundEnded
+        ? room.lastSelections || {}
+        : room.currentSelections || {};
       res.json({
         success: true,
         currentQuestion: room.currentQuestion,
         timeLeft: remainingTime,
-        showResult: room.roundEnded, // CRITICAL: Only show results after end_round
+        showResult: room.roundEnded,
         gameState: room.gameState,
         roundEnded: room.roundEnded,
         questionStartTime: room.questionStartTime,
         selections: selectionsToSend,
         scores: room.scores || {},
-        playerNames: room.playerNames || {}
+        playerNames: room.playerNames || {},
       });
     } else {
-      // console.log('📋 [game-state] No current question for room:', roomId);
       res.json({
         success: true,
         currentQuestion: null,
         timeLeft: MAX_TIME,
         showResult: false,
-        gameState: 'waiting',
+        gameState: "waiting",
         roundEnded: false,
-        questionStartTime: null
+        questionStartTime: null,
       });
     }
   } catch (error) {
-    // console.error('Game state error:', error);
-    res.status(500).json({ error: 'Failed to get game state' });
+    res.status(500).json({ error: "Failed to get game state" });
   }
 });
 
-// Start question endpoint for Next button functionality
-app.post('/api/start_question', (req, res) => {
+app.post("/api/start_question", (req, res) => {
   const { roomId, forceNew } = req.body;
-  
-  // console.log(`🎯 [/api/start_question] Starting question for room: ${roomId}, forceNew: ${forceNew}`);
-  
+
   if (!roomId) {
-    return res.status(400).json({ success: false, error: 'Missing roomId' });
+    return res.status(400).json({ success: false, error: "Missing roomId" });
   }
-  
+
   try {
-    // Ensure room exists
     if (!rooms[roomId]) {
-      // console.log(`🏠 Creating room for start_question request: ${roomId}`);
       rooms[roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
         scores: {},
         playerNames: {},
-        questionHistory: []
+        questionHistory: [],
       };
     }
-    
+
     const room = rooms[roomId];
-    
-    // If not forcing new question and room has existing question, return it
+
     if (!forceNew && room.currentQuestion && !room.roundEnded) {
-      // console.log('📋 [/api/start_question] Returning existing question for synchronization');
-      
-      // Calculate remaining time based on when question started
       const now = Date.now();
       const questionStartTime = room.questionStartTime || now;
       const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
       const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-      
-      return res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         question: room.currentQuestion,
         timeLeft: remainingTime,
         startTime: questionStartTime,
-        showResult: room.roundEnded || remainingTime <= 0
+        showResult: room.roundEnded || remainingTime <= 0,
       });
     }
-    
-    // SPECIAL CASE: If forcing new question but a question was just generated very recently,
-    // return the recent question to prevent race conditions from Next button clicks
+
     if (forceNew && room.currentQuestion && room.questionStartTime) {
       const now = Date.now();
       const timeSinceGeneration = now - room.questionStartTime;
-      
-      // If question was generated less than 3 seconds ago, return it instead of generating new one
+
       if (timeSinceGeneration < 3000) {
-        // console.log(`🔄 [/api/start_question] ForceNew request but question generated ${timeSinceGeneration}ms ago - returning recent question`);
-        // console.log('📄 Returning question details:', {
-          // isCard: room.currentQuestion.isCard,
-          // cardName: room.currentQuestion.cardName,
-          // cardUrl: room.currentQuestion.cardUrl,
-          // questionText: room.currentQuestion.question ? room.currentQuestion.question.substring(0, 50) + '...' : 'N/A'
-        // });
         const elapsedSeconds = Math.floor(timeSinceGeneration / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: room.questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       }
     }
-    
-    // Check if someone is already generating a question (prevent race condition)
+
     if (room.generatingQuestion) {
-      // console.log('⏳ [/api/start_question] Question generation in progress, waiting...');
-      // Return existing question or wait for generation to complete
       if (room.currentQuestion && !room.roundEnded) {
         const now = Date.now();
         const questionStartTime = room.questionStartTime || now;
         const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       } else {
-        // Wait for generation to complete
-        return res.status(409).json({ success: false, error: 'Question generation in progress, try again' });
+        return res
+          .status(409)
+          .json({
+            success: false,
+            error: "Question generation in progress, try again",
+          });
       }
     }
-    
-    // Additional check: prevent rapid successive question generation
+
     const now = Date.now();
-    if (room.lastQuestionGenerated && (now - room.lastQuestionGenerated) < 2000) {
-      // console.log('🚫 [/api/start_question] Rate limiting: Too soon after last question generation');
+    if (room.lastQuestionGenerated && now - room.lastQuestionGenerated < 2000) {
       if (room.currentQuestion) {
         const questionStartTime = room.questionStartTime || now;
         const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       } else {
-        return res.status(429).json({ success: false, error: 'Rate limited: too many requests' });
+        return res
+          .status(429)
+          .json({ success: false, error: "Rate limited: too many requests" });
       }
     }
-    
-    // If forcing new question or no existing question, generate new one
+
     if (forceNew) {
-      // console.log('🆕 [/api/start_question] Force new question requested (Next button clicked)');
     } else {
-      // console.log('🆕 [/api/start_question] Generating first question for room');
     }
-    
-    // Check if someone is already generating a question (prevent race condition)
+
     if (room.generatingQuestion) {
-      // console.log('⏳ [/api/start_question] Question generation already in progress, waiting...');
-      // Return existing question or wait for generation to complete
       if (room.currentQuestion && !room.roundEnded) {
         const questionStartTime = room.questionStartTime || now;
         const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       } else {
-        // Wait for generation to complete
-        return res.status(409).json({ success: false, error: 'Question generation in progress, try again' });
+        return res
+          .status(409)
+          .json({
+            success: false,
+            error: "Question generation in progress, try again",
+          });
       }
     }
-    
-    // Mark that we're generating a question (prevent race conditions)
+
     room.generatingQuestion = true;
     room.lastQuestionGenerated = now;
-    
-    // If forceNew is true (Restart Quiz button), reset all scores
+
     if (forceNew) {
-      console.log('🔄 [/api/start_question] Resetting scores for new quiz session');
-      Object.keys(room.players || {}).forEach(playerId => {
+      Object.keys(room.players || {}).forEach((playerId) => {
         if (room.players[playerId]) {
           room.players[playerId].score = 0;
         }
       });
       room.scores = {};
-      // Clear saved current scores for this room
+
       StorageService.clearCurrentScores(roomId);
-      console.log('✅ [/api/start_question] Scores reset complete:', room.scores);
     }
-    
-    // Generate new question - clear round ended state since we're starting fresh
+
     const randomQuestion = getRandomQuestion();
     const questionStartTime = Date.now();
-    
-    // Update room state with new question
+
     room.currentQuestion = randomQuestion;
     room.questionStartTime = questionStartTime;
     room.lastActive = new Date();
-    room.gameState = 'playing';
-    room.roundEnded = false; // Reset round ended flag for new question
-    room.currentSelections = {}; // Clear previous selections
-    room.lastSelections = {}; // Clear last selections too
-    room.lastCorrectAnswer = null; // Clear last correct answer
-    room.resultShowStartTime = null; // Clear result show timer for new question
-    room.generatingQuestion = false; // Clear the lock
-    
-    // console.log('🆕 Generated new question for room:', randomQuestion.isCard ? 'Card Question' : 'Trivia Question');
-    
-    // Broadcast cleared selections to all clients to prevent old badges from persisting
-    io.to(roomId).emit('gameState', {
+    room.gameState = "playing";
+    room.roundEnded = false;
+    room.currentSelections = {};
+    room.lastSelections = {};
+    room.lastCorrectAnswer = null;
+    room.resultShowStartTime = null;
+    room.selections = {};
+    room.generatingQuestion = false;
+
+    io.to(roomId).emit("gameState", {
       currentQuestion: randomQuestion,
       timeLeft: MAX_TIME,
       showResult: false,
-      gameState: 'playing',
+      gameState: "playing",
       questionStartTime: questionStartTime,
-      selections: {}, // Empty selections for new question
+      selections: {},
       scores: room.scores || {},
-      playerNames: room.playerNames || {}
+      playerNames: room.playerNames || {},
     });
-    
-    // Return the question directly to the client
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       question: randomQuestion,
       timeLeft: MAX_TIME,
-      startTime: questionStartTime
+      startTime: questionStartTime,
     });
-    
   } catch (error) {
-    // console.error('Start question error:', error);
-    res.status(500).json({ error: 'Failed to start question' });
+    res.status(500).json({ error: "Failed to start question" });
   }
 });
 
-// Fallback start question endpoint (Discord strips /api prefix)
-app.post('/start_question', (req, res) => {
+app.post("/start_question", (req, res) => {
   const { roomId, forceNew } = req.body;
-  
-  // console.log(`🎯 [/start_question] Starting question for room: ${roomId}, forceNew: ${forceNew}`);
-  
+
   if (!roomId) {
-    return res.status(400).json({ success: false, error: 'Missing roomId' });
+    return res.status(400).json({ success: false, error: "Missing roomId" });
   }
-  
+
   try {
-    // Ensure room exists
     if (!rooms[roomId]) {
-      // console.log(`🏠 Creating room for start_question request: ${roomId}`);
       rooms[roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
         scores: {},
         playerNames: {},
-        questionHistory: []
+        questionHistory: [],
       };
     }
-    
+
     const room = rooms[roomId];
-    
-    // If not forcing new question and room has existing question, return it
+
     if (!forceNew && room.currentQuestion && !room.roundEnded) {
-      // console.log('📋 [/start_question] Returning existing question for synchronization');
-      
-      // Calculate remaining time based on when question started
       const now = Date.now();
       const questionStartTime = room.questionStartTime || now;
       const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
       const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-      
-      return res.json({ 
-        success: true, 
+
+      return res.json({
+        success: true,
         question: room.currentQuestion,
         timeLeft: remainingTime,
         startTime: questionStartTime,
-        showResult: room.roundEnded || remainingTime <= 0
+        showResult: room.roundEnded || remainingTime <= 0,
       });
     }
-    
-    // SPECIAL CASE: If forcing new question but a question was just generated very recently,
-    // return the recent question to prevent race conditions from Next button clicks
+
     if (forceNew && room.currentQuestion && room.questionStartTime) {
       const now = Date.now();
       const timeSinceGeneration = now - room.questionStartTime;
-      
-      // If question was generated less than 5 seconds ago, return it instead of generating new one
+
       if (timeSinceGeneration < 5000) {
-        // console.log(`🔄 [/start_question] ForceNew request but question generated ${timeSinceGeneration}ms ago - returning recent question`);
-        // console.log('📄 Returning question details:', {
-          // isCard: room.currentQuestion.isCard,
-          // cardName: room.currentQuestion.cardName,
-          // cardUrl: room.currentQuestion.cardUrl,
-          // questionText: room.currentQuestion.question ? room.currentQuestion.question.substring(0, 50) + '...' : 'N/A'
-        // });
         const elapsedSeconds = Math.floor(timeSinceGeneration / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: room.questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       }
     }
-    
-    // If forcing new question or no existing question, generate new one
+
     if (forceNew) {
-      // console.log('🆕 [/start_question] Force new question requested (Next button clicked)');
     }
-    
-    // Check if someone is already generating a question (prevent race condition)
+
     if (room.generatingQuestion) {
-      // console.log('⏳ [/start_question] Question generation in progress, waiting...');
-      // Return existing question or wait for generation to complete
       if (room.currentQuestion && !room.roundEnded) {
         const now = Date.now();
         const questionStartTime = room.questionStartTime || now;
         const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       } else {
-        // Wait for generation to complete
-        return res.status(409).json({ success: false, error: 'Question generation in progress, try again' });
+        return res
+          .status(409)
+          .json({
+            success: false,
+            error: "Question generation in progress, try again",
+          });
       }
     }
-    
-    // Additional check: prevent rapid successive question generation
+
     const now = Date.now();
-    if (room.lastQuestionGenerated && (now - room.lastQuestionGenerated) < 2000) {
-      // console.log('🚫 [/start_question] Rate limiting: Too soon after last question generation');
+    if (room.lastQuestionGenerated && now - room.lastQuestionGenerated < 2000) {
       if (room.currentQuestion) {
         const questionStartTime = room.questionStartTime || now;
         const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
         const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-        
-        return res.json({ 
-          success: true, 
+
+        return res.json({
+          success: true,
           question: room.currentQuestion,
           timeLeft: remainingTime,
           startTime: questionStartTime,
-          showResult: room.roundEnded || remainingTime <= 0
+          showResult: room.roundEnded || remainingTime <= 0,
         });
       } else {
-        return res.status(429).json({ success: false, error: 'Rate limited: too many requests' });
+        return res
+          .status(429)
+          .json({ success: false, error: "Rate limited: too many requests" });
       }
     }
-    
-    // Mark that we're generating a question (prevent race conditions)
+
     room.generatingQuestion = true;
     room.lastQuestionGenerated = now;
-    
-    // Generate new question - clear round ended state since we're starting fresh
+
     const randomQuestion = getRandomQuestion();
     const questionStartTime = Date.now();
-    
-    // Update room state with new question
+
     room.currentQuestion = randomQuestion;
     room.questionStartTime = questionStartTime;
     room.lastActive = new Date();
-    room.gameState = 'playing';
-    room.roundEnded = false; // Reset round ended flag for new question
-    room.currentSelections = {}; // Clear previous selections
-    room.lastSelections = {}; // Clear last selections too
-    room.lastCorrectAnswer = null; // Clear last correct answer
-    room.resultShowStartTime = null; // Clear result show timer for new question
-    room.generatingQuestion = false; // Clear the lock
-    
-    // console.log('🆕 [/start_question] Generated new question for room:', randomQuestion.isCard ? 'Card Question' : 'Trivia Question');
-    
-    // Broadcast cleared selections to all clients to prevent old badges from persisting
-    io.to(roomId).emit('gameState', {
+    room.gameState = "playing";
+    room.roundEnded = false;
+    room.currentSelections = {};
+    room.lastSelections = {};
+    room.lastCorrectAnswer = null;
+    room.resultShowStartTime = null;
+    room.generatingQuestion = false;
+
+    io.to(roomId).emit("gameState", {
       currentQuestion: randomQuestion,
       timeLeft: MAX_TIME,
       showResult: false,
-      gameState: 'playing',
+      gameState: "playing",
       questionStartTime: questionStartTime,
-      selections: {}, // Empty selections for new question
+      selections: {},
       scores: room.scores || {},
-      playerNames: room.playerNames || {}
+      playerNames: room.playerNames || {},
     });
-    
-    // Return the question directly to the client
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       question: randomQuestion,
       timeLeft: MAX_TIME,
-      startTime: questionStartTime
+      startTime: questionStartTime,
     });
-    
   } catch (error) {
-    // console.error('Start question error:', error);
-    res.status(500).json({ error: 'Failed to start question' });
+    res.status(500).json({ error: "Failed to start question" });
   }
 });
 
-// Sync local question to server when transitioning from local to multiplayer
-app.post('/api/sync_local_question', (req, res) => {
+app.post("/api/sync_local_question", (req, res) => {
   const { roomId, question, timeLeft } = req.body;
-  
-  // console.log(`🔄 [/api/sync_local_question] Syncing local question to room: ${roomId}`);
-  
+
   if (!roomId || !question) {
-    return res.status(400).json({ success: false, error: 'Missing roomId or question' });
+    return res
+      .status(400)
+      .json({ success: false, error: "Missing roomId or question" });
   }
-  
+
   try {
-    // Ensure room exists
     if (!rooms[roomId]) {
-      // console.log(`🏠 Creating room for sync_local_question request: ${roomId}`);
       rooms[roomId] = {
         players: {},
         currentQuestion: null,
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
         scores: {},
         playerNames: {},
-        questionHistory: []
+        questionHistory: [],
       };
     }
-    
+
     const room = rooms[roomId];
-    
-    // Only sync if the server doesn't already have a question
+
     if (!room.currentQuestion) {
-      // console.log('📤 Syncing local question to server:', question.isCard ? 'Card Question' : 'Regular Question');
-      
-      // Calculate when the question started based on time left
       const now = Date.now();
       const elapsedTime = MAX_TIME - (timeLeft || MAX_TIME);
-      const questionStartTime = now - (elapsedTime * 1000);
-      
+      const questionStartTime = now - elapsedTime * 1000;
+
       room.currentQuestion = question;
-      room.gameState = 'playing';
+      room.gameState = "playing";
       room.questionStartTime = questionStartTime;
       room.roundEnded = false;
       room.selections = {};
-      
-      // Clear any existing timer and start new one
+
       if (room.timer) {
         clearTimeout(room.timer);
       }
-      
-      // Set timer to end the round when time runs out
+
       if (timeLeft > 0) {
         room.timer = setTimeout(() => {
-          console.log(`⏰ Room ${roomId} time up via sync - setting roundEnded=true for question:`, room.currentQuestion?.id);
           room.roundEnded = true;
-          room.gameState = 'ended';
+          room.gameState = "ended";
         }, timeLeft * 1000);
       }
-      
-      // console.log('✅ Successfully synced local question to server');
-      return res.json({ 
-        success: true, 
-        message: 'Local question synced to server',
+
+      return res.json({
+        success: true,
+        message: "Local question synced to server",
         question: room.currentQuestion,
-        timeLeft: timeLeft || MAX_TIME
+        timeLeft: timeLeft || MAX_TIME,
       });
     } else {
-      // console.log('📋 Server already has a question, returning existing question');
-      
-      // Calculate remaining time
       const now = Date.now();
       const questionStartTime = room.questionStartTime || now;
       const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
       const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
-      
-      return res.json({ 
-        success: true, 
-        message: 'Server already has question',
+
+      return res.json({
+        success: true,
+        message: "Server already has question",
         question: room.currentQuestion,
         timeLeft: remainingTime,
-        hadExisting: true
+        hadExisting: true,
       });
     }
-    
   } catch (error) {
-    // console.error('Sync local question error:', error);
-    res.status(500).json({ error: 'Failed to sync local question' });
+    res.status(500).json({ error: "Failed to sync local question" });
   }
 });
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { 
+  cors: {
     origin: [
-      'http://127.0.0.1',
-      'http://localhost:5173',
-      'https://1414187165146943518.discordsays.com',  // Discord Activity domain
-      'https://discord-frontend-virid.vercel.app',  // Production frontend
-      'https://discordbackend-xggi.onrender.com'  // Production backend (self)
+      "http://127.0.0.1",
+      "http://localhost:5173",
+      "https://1414187165146943518.discordsays.com",
+      "https://discord-frontend-virid.vercel.app",
+      "https://discordbackend-xggi.onrender.com",
     ],
     methods: ["GET", "POST"],
-    credentials: true
-  }
+    credentials: true,
+  },
 });
 
-// simple in-memory rooms object (replace with DB for production)
-// Improved room management for Discord Activities
-const rooms = {}; // channelId -> room object with game state
-
+const rooms = {};
 
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
     const channelId = socket.handshake.auth?.channelId;
     const reconnecting = socket.handshake.auth?.reconnecting;
-    
+
     if (!token) return next(new Error("Missing token"));
     if (!channelId) return next(new Error("Missing voice channel ID"));
 
-    // Store reconnection attempt info
     socket.data.reconnecting = reconnecting;
-    
-    // Validate token with Discord
+
     const resp = await fetch("https://discord.com/api/users/@me", {
       headers: { Authorization: `Bearer ${token}` },
     });
-    
+
     if (!resp.ok) return next(new Error("Invalid Discord token"));
     const user = await resp.json();
-    
-    // Store user and channel info in socket data
+
     socket.data.user = user;
     socket.data.channelId = channelId;
-    
-    // Initialize room if it doesn't exist
+
     if (!rooms[channelId]) {
       rooms[channelId] = {
         players: {},
@@ -1915,17 +1678,16 @@ io.use(async (socket, next) => {
         selections: {},
         hostSocketId: null,
         timer: null,
-        gameState: 'waiting',
+        gameState: "waiting",
         startTime: new Date(),
         lastActive: new Date(),
         scores: {},
-        questionHistory: []
+        questionHistory: [],
       };
     }
-    
+
     return next();
   } catch (err) {
-    // console.error('Socket authentication error:', err);
     return next(new Error("Auth error"));
   }
 });
@@ -1934,50 +1696,44 @@ function pickRandomQuestion(room) {
   if (!questions || !questions.length) return null;
   const idx = Math.floor(Math.random() * questions.length);
   const qraw = questions[idx];
-  // Server stores correctIndex but sends it only on show_result
+
   return {
     id: `q_${Date.now()}_${idx}`,
     question: qraw.question,
     options: qraw.options,
-    correctIndex: qraw.options.findIndex((opt) => opt.startsWith(qraw.answer)), // used later
+    correctIndex: qraw.options.findIndex((opt) => opt.startsWith(qraw.answer)),
   };
 }
 
-// Clean up inactive rooms periodically
 function cleanupInactiveRooms() {
   const now = new Date();
   const roomsToDelete = [];
-  
+
   Object.entries(rooms).forEach(([channelId, room]) => {
     const timeSinceLastActive = now - room.lastActive;
     if (timeSinceLastActive > ROOM_INACTIVE_THRESHOLD) {
       roomsToDelete.push(channelId);
-      // Stop any active timers
+
       if (room.timer) {
         clearTimeout(room.timer);
       }
-      // Save scores before cleanup for archival
+
       if (room.scores && Object.keys(room.scores).length > 0) {
         StorageService.saveLeaderboard(channelId, room.scores);
       }
     }
   });
-  
-  // Delete rooms after iteration
-  roomsToDelete.forEach(channelId => {
+
+  roomsToDelete.forEach((channelId) => {
     delete rooms[channelId];
-    console.log(`🧹 Cleaned up inactive room ${channelId} (inactive for ${Math.round(ROOM_INACTIVE_THRESHOLD / 60000)} minutes)`);
   });
-  
+
   if (roomsToDelete.length > 0) {
-    console.log(`🧹 Cleanup complete: removed ${roomsToDelete.length} inactive room(s)`);
   }
 }
 
-// Start the cleanup interval
 setInterval(cleanupInactiveRooms, ROOM_CLEANUP_INTERVAL);
 
-// Schedule daily leaderboard reset
 function scheduleNextReset() {
   const now = new Date();
   const nextReset = new Date(
@@ -1985,93 +1741,76 @@ function scheduleNextReset() {
     now.getMonth(),
     now.getDate() + (now.getHours() >= LEADERBOARD_RESET_HOUR ? 1 : 0),
     LEADERBOARD_RESET_HOUR,
-    LEADERBOARD_RESET_MINUTE
+    LEADERBOARD_RESET_MINUTE,
   );
 
   const timeUntilReset = nextReset.getTime() - now.getTime();
   setTimeout(() => {
     resetLeaderboards();
-    scheduleNextReset(); // Schedule next reset
+    scheduleNextReset();
   }, timeUntilReset);
-
-  // console.log(`Next leaderboard reset scheduled for ${nextReset.toISOString()}`);
 }
 
-// Reset all leaderboards
 async function resetLeaderboards() {
-  // console.log('Performing daily leaderboard reset');
-  
-  // Archive current scores if needed
   const archive = {
-    date: new Date().toISOString().split('T')[0],
-    channels: {}
+    date: new Date().toISOString().split("T")[0],
+    channels: {},
   };
 
-  // Archive scores to persistent storage
   for (const [channelId, room] of Object.entries(rooms)) {
-    await StorageService.archiveLeaderboard(channelId, 
+    await StorageService.archiveLeaderboard(
+      channelId,
       Object.entries(room.players).map(([id, player]) => ({
         id,
         name: player.name,
         score: player.score,
-        avatar: player.avatar
-      }))
+        avatar: player.avatar,
+      })),
     );
   }
 
-  // Reset scores in all rooms
   Object.entries(rooms).forEach(([channelId, room]) => {
-    // Archive current scores
     archive.channels[channelId] = {
       players: Object.entries(room.players).map(([id, player]) => ({
         id,
         name: player.name,
         score: player.score,
-        avatar: player.avatar
-      }))
+        avatar: player.avatar,
+      })),
     };
 
-    // Reset scores
-    Object.keys(room.players).forEach(playerId => {
+    Object.keys(room.players).forEach((playerId) => {
       room.players[playerId].score = 0;
     });
     room.scores = {};
-    
-    // Clear saved current scores for this room
+
     StorageService.clearCurrentScores(channelId);
 
-    // Notify room of reset
-    io.to(channelId).emit('leaderboard_reset', {
+    io.to(channelId).emit("leaderboard_reset", {
       previousScores: archive.channels[channelId].players,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
 
-    // Update room state
-    io.to(channelId).emit('room_state', {
-      players: Object.values(room.players).map(p => ({
+    io.to(channelId).emit("room_state", {
+      players: Object.values(room.players).map((p) => ({
         id: p.id,
         name: p.name,
         score: 0,
-        avatar: p.avatar
+        avatar: p.avatar,
       })),
       scores: room.scores,
-      gameState: room.gameState
+      gameState: room.gameState,
     });
   });
 
-  // Reset analytics for new day
   analytics.dailyStats = {
-    date: new Date().toISOString().split('T')[0],
+    date: new Date().toISOString().split("T")[0],
     gamesPlayed: 0,
     questionsAnswered: 0,
-    uniquePlayers: new Set()
+    uniquePlayers: new Set(),
   };
-
-  // You could store the archive in a database here
-  // console.log('Leaderboard reset complete');
 }
 
-// Start the reset schedule
 scheduleNextReset();
 
 function computeScores(room) {
@@ -2081,11 +1820,17 @@ function computeScores(room) {
   const endTime = Date.now();
   const startTime = currentQuestion.startTime || endTime;
   const elapsedSec = Math.max(0, Math.floor((endTime - startTime) / 1000));
-  const remaining = Math.max(0, (currentQuestion.maxTime || MAX_TIME) - elapsedSec);
-  const bonusFactor = Math.ceil((remaining / (currentQuestion.maxTime || MAX_TIME)) * 10);
+  const remaining = Math.max(
+    0,
+    (currentQuestion.maxTime || MAX_TIME) - elapsedSec,
+  );
+  const bonusFactor = Math.ceil(
+    (remaining / (currentQuestion.maxTime || MAX_TIME)) * 10,
+  );
   for (const uid of Object.keys(room.players)) {
     const pick = selections[uid];
-    if (pick === correct) room.players[uid].score = (room.players[uid].score || 0) + bonusFactor;
+    if (pick === correct)
+      room.players[uid].score = (room.players[uid].score || 0) + bonusFactor;
   }
 }
 
@@ -2094,258 +1839,257 @@ io.on("connection", (socket) => {
   const channelId = socket.data.channelId;
   const reconnecting = socket.data.reconnecting;
 
-  // Handle reconnection attempts
   if (reconnecting && rooms[channelId]) {
     const existingPlayer = rooms[channelId].players[user.id];
     if (existingPlayer) {
-      // Update socket ID but preserve score and other data
       existingPlayer.socketId = socket.id;
       existingPlayer.connected = true;
       existingPlayer.lastActive = new Date();
 
-      // Send current game state to reconnected player
-      socket.emit('game_state', {
+      socket.emit("game_state", {
         currentQuestion: rooms[channelId].currentQuestion,
         selections: rooms[channelId].selections,
         scores: rooms[channelId].scores,
         gameState: rooms[channelId].gameState,
-        timeLeft: rooms[channelId].currentQuestion ? 
-          Math.max(0, MAX_TIME - Math.floor((Date.now() - rooms[channelId].currentQuestion.startTime) / 1000)) : 
-          0
+        timeLeft: rooms[channelId].currentQuestion
+          ? Math.max(
+              0,
+              MAX_TIME -
+                Math.floor(
+                  (Date.now() - rooms[channelId].currentQuestion.startTime) /
+                    1000,
+                ),
+            )
+          : 0,
       });
     }
   }
 
-  // ensure room exists
   if (!rooms[channelId]) {
-    rooms[channelId] = { 
-      players: {}, 
-      selections: {}, 
-      currentQuestion: null, 
-      hostSocketId: socket.id, 
-      timer: null, 
+    rooms[channelId] = {
+      players: {},
+      selections: {},
+      currentQuestion: null,
+      hostSocketId: socket.id,
+      timer: null,
       scores: {},
-      gameState: 'waiting',
+      gameState: "waiting",
       startTime: new Date(),
       lastActive: new Date(),
-      questionHistory: []
+      questionHistory: [],
     };
   }
 
-  // Update room activity timestamp
   rooms[channelId].lastActive = new Date();
 
-  // add player
-  rooms[channelId].players[user.id] = { 
-    id: user.id, 
-    name: user.username, 
-    score: rooms[channelId].players[user.id]?.score ?? 0, 
+  rooms[channelId].players[user.id] = {
+    id: user.id,
+    name: user.username,
+    score: rooms[channelId].players[user.id]?.score ?? 0,
     socketId: socket.id,
-    avatar: user.avatar
+    avatar: user.avatar,
   };
-  
+
   rooms[channelId].scores = Object.fromEntries(
-    Object.entries(rooms[channelId].players)
-      .map(([id, p]) => [id, p.score || 0])
+    Object.entries(rooms[channelId].players).map(([id, p]) => [
+      id,
+      p.score || 0,
+    ]),
   );
 
   socket.join(channelId);
 
-  // notify this socket of their id and host status
-  socket.emit("you_joined", { 
+  socket.emit("you_joined", {
     playerId: user.id,
-    isHost: rooms[channelId].hostSocketId === socket.id 
+    isHost: rooms[channelId].hostSocketId === socket.id,
   });
 
-  // broadcast room state
-  const playersList = Object.values(rooms[channelId].players).map((p) => ({ 
-    id: p.id, 
-    name: p.name, 
+  const playersList = Object.values(rooms[channelId].players).map((p) => ({
+    id: p.id,
+    name: p.name,
     score: p.score || 0,
-    avatar: p.avatar
+    avatar: p.avatar,
   }));
-  
-  io.to(channelId).emit("room_state", { 
-    players: playersList, 
+
+  io.to(channelId).emit("room_state", {
+    players: playersList,
     scores: rooms[channelId].scores,
-    gameState: rooms[channelId].gameState
+    gameState: rooms[channelId].gameState,
   });
 
-  // events
   socket.on("start_question", () => {
     const room = rooms[channelId];
     if (!room) return;
-    // only host may start
+
     if (room.hostSocketId !== socket.id) return;
-    // don't start if already in progress
-    if (room.gameState === 'active') return;
-    
+
+    if (room.gameState === "active") return;
+
     const q = pickRandomQuestion(room);
     if (!q) return;
 
-    room.currentQuestion = { 
-      ...q, 
-      startTime: Date.now(), 
-      maxTime: MAX_TIME 
+    room.currentQuestion = {
+      ...q,
+      startTime: Date.now(),
+      maxTime: MAX_TIME,
     };
     room.selections = {};
-    room.gameState = 'active';
+    room.gameState = "active";
     room.lastActive = new Date();
-    room.roundEnded = false; // Reset round ended flag for new question
+    room.roundEnded = false;
 
-    // Update analytics
     analytics.totalGamesPlayed++;
     analytics.dailyStats.gamesPlayed++;
     analytics.activeChannels.add(channelId);
-    
-    // Track unique players
-    Object.keys(room.players).forEach(playerId => {
+
+    Object.keys(room.players).forEach((playerId) => {
       analytics.dailyStats.uniquePlayers.add(playerId);
     });
 
-    // Add to question history
     room.questionHistory.push({
       questionId: q.id,
-      startTime: room.currentQuestion.startTime
+      startTime: room.currentQuestion.startTime,
     });
-    
-    // broadcast start
-    io.to(channelId).emit("question_started", { 
-      question: { 
-        id: q.id, 
-        question: q.question, 
-        options: q.options 
-      }, 
-      startTime: room.currentQuestion.startTime, 
-      maxTime: room.currentQuestion.maxTime 
+
+    io.to(channelId).emit("question_started", {
+      question: {
+        id: q.id,
+        question: q.question,
+        options: q.options,
+      },
+      startTime: room.currentQuestion.startTime,
+      maxTime: room.currentQuestion.maxTime,
     });
-    // set timer to finish
+
     if (room.timer) clearTimeout(room.timer);
     room.timer = setTimeout(() => {
-      // compute result and broadcast show_result
       computeScores(room);
-      room.scores = Object.fromEntries(Object.entries(room.players).map(([id, p]) => [id, p.score || 0]));
-      io.to(channelId).emit("show_result", { correctIndex: room.currentQuestion.correctIndex, scores: room.scores, selections: room.selections });
+      room.scores = Object.fromEntries(
+        Object.entries(room.players).map(([id, p]) => [id, p.score || 0]),
+      );
+      io.to(channelId).emit("show_result", {
+        correctIndex: room.currentQuestion.correctIndex,
+        scores: room.scores,
+        selections: room.selections,
+      });
       room.currentQuestion = null;
       room.selections = {};
       room.timer = null;
-      // broadcast room_state scores update
-      io.to(channelId).emit("room_state", { players: Object.values(room.players), scores: room.scores });
+
+      io.to(channelId).emit("room_state", {
+        players: Object.values(room.players),
+        scores: room.scores,
+      });
     }, MAX_TIME * 1000);
   });
 
   socket.on("select_option", ({ optionIndex }) => {
     const room = rooms[channelId];
-    if (!room || !room.currentQuestion || room.gameState !== 'active') return;
-    if (room.selections[user.id] !== undefined) return; // prevent double answers
-    
+    if (!room || !room.currentQuestion || room.gameState !== "active") return;
+    if (room.selections[user.id] !== undefined) return;
+
     room.selections[user.id] = optionIndex;
     room.lastActive = new Date();
 
-    // Update analytics
     analytics.totalQuestionsAnswered++;
     analytics.dailyStats.questionsAnswered++;
-    
-    io.to(channelId).emit("player_selected", { 
-      playerId: user.id, 
+
+    io.to(channelId).emit("player_selected", {
+      playerId: user.id,
       optionIndex,
-      playerName: room.players[user.id].name
+      playerName: room.players[user.id].name,
     });
 
-    // if all players have answered => resolve early
     const connectedPlayerCount = Object.keys(room.players).length;
     const answeredCount = Object.keys(room.selections).length;
     if (answeredCount >= connectedPlayerCount) {
       if (room.timer) clearTimeout(room.timer);
-      // compute immediately
+
       computeScores(room);
-      room.scores = Object.fromEntries(Object.entries(room.players).map(([id, p]) => [id, p.score || 0]));
-      io.to(channelId).emit("show_result", { correctIndex: room.currentQuestion.correctIndex, scores: room.scores, selections: room.selections });
+      room.scores = Object.fromEntries(
+        Object.entries(room.players).map(([id, p]) => [id, p.score || 0]),
+      );
+      io.to(channelId).emit("show_result", {
+        correctIndex: room.currentQuestion.correctIndex,
+        scores: room.scores,
+        selections: room.selections,
+      });
       room.currentQuestion = null;
       room.selections = {};
       room.timer = null;
-      // update room state
-      io.to(channelId).emit("room_state", { players: Object.values(room.players), scores: room.scores });
+
+      io.to(channelId).emit("room_state", {
+        players: Object.values(room.players),
+        scores: room.scores,
+      });
     }
   });
 
-  // Handle activity_ended event to clean up room immediately
   socket.on("activity_ended", ({ roomId: requestedRoomId }) => {
     const targetRoom = requestedRoomId || channelId;
     const room = rooms[targetRoom];
-    
+
     if (room) {
-      console.log(`📴 Activity ended for room ${targetRoom} - cleaning up immediately`);
-      
-      // Stop any active timers
       if (room.timer) {
         clearTimeout(room.timer);
       }
-      
-      // Save scores for archival before deletion
+
       if (room.scores && Object.keys(room.scores).length > 0) {
         StorageService.saveLeaderboard(targetRoom, room.scores);
       }
-      
-      // Delete the room completely for fresh start
+
       delete rooms[targetRoom];
-      
-      // Notify all clients in the room that activity has ended
-      io.to(targetRoom).emit('activity_cleanup', { message: 'Activity ended, room cleaned up' });
+
+      io.to(targetRoom).emit("activity_cleanup", {
+        message: "Activity ended, room cleaned up",
+      });
     }
   });
 
-  // when someone disconnects, remove from room
   socket.on("disconnect", () => {
     const room = rooms[channelId];
     if (!room) return;
-    
-    // Update room activity timestamp
+
     room.lastActive = new Date();
-    
+
     delete room.players[user.id];
     delete room.scores[user.id];
 
-    // if host left, reassign host to the next socket in the room
     if (room.hostSocketId === socket.id) {
       const sockets = Array.from(io.sockets.adapter.rooms.get(channelId) ?? []);
       room.hostSocketId = sockets.length > 0 ? sockets[0] : null;
-      
-      // If there are still players, notify new host
+
       if (room.hostSocketId) {
         const newHostSocket = io.sockets.sockets.get(room.hostSocketId);
         if (newHostSocket) {
-          newHostSocket.emit("you_joined", { 
+          newHostSocket.emit("you_joined", {
             playerId: newHostSocket.data.user.id,
-            isHost: true
+            isHost: true,
           });
         }
       }
     }
 
-    // If no more players, immediately clean up the room completely
     if (Object.keys(room.players).length === 0) {
       if (room.timer) {
         clearTimeout(room.timer);
       }
-      // Save current scores before deleting room (for potential leaderboard archival)
+
       if (room.scores && Object.keys(room.scores).length > 0) {
         StorageService.saveLeaderboard(channelId, room.scores);
       }
-      // Delete the entire room to ensure fresh start on reconnect
+
       delete rooms[channelId];
-      console.log(`🧹 Room ${channelId} completely cleaned up - all players disconnected`);
     } else {
-      // Otherwise broadcast updated state
-      io.to(channelId).emit("room_state", { 
-        players: Object.values(room.players).map(p => ({
+      io.to(channelId).emit("room_state", {
+        players: Object.values(room.players).map((p) => ({
           id: p.id,
           name: p.name,
           score: p.score || 0,
-          avatar: p.avatar
-        })), 
+          avatar: p.avatar,
+        })),
         scores: room.scores,
-        gameState: room.gameState
+        gameState: room.gameState,
       });
     }
   });
@@ -2353,22 +2097,17 @@ io.on("connection", (socket) => {
 
 const path = require("path");
 
-// Serve static files only in production
-if (process.env.NODE_ENV === 'production') {
+if (process.env.NODE_ENV === "production") {
   const frontendPath = path.join(__dirname, "../client/dist");
   app.use(express.static(frontendPath));
 
-  // Catch-all: send back index.html for any unknown route
   app.get("/", (req, res) => {
     res.sendFile(path.join(frontendPath, "index.html"));
   });
 } else {
-  // Redirect to production frontend
   app.get("/", (req, res) => {
-    res.redirect('https://discord-frontend-virid.vercel.app');
+    res.redirect("https://discord-frontend-virid.vercel.app");
   });
 }
 
-server.listen(PORT, () => {
-  // console.log("Server listening on", PORT);
-});
+server.listen(PORT, () => {});
