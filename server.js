@@ -232,6 +232,8 @@ app.post("/api/game-event", (req, res) => {
               timeLeft: remainingTime,
               startTime: questionStartTime,
               showResult: room.roundEnded || remainingTime <= 0,
+              selections: room.currentSelections || {},
+              roundEnded: !!room.roundEnded,
             });
             return;
           }
@@ -254,6 +256,8 @@ app.post("/api/game-event", (req, res) => {
                   question: room.currentQuestion,
                   timeLeft: remainingTime,
                   startTime: questionStartTime,
+                  selections: room.currentSelections || {},
+                  roundEnded: !!room.roundEnded,
                 });
               } else {
                 res.json({
@@ -297,6 +301,8 @@ app.post("/api/game-event", (req, res) => {
             question: randomQuestionForSocket,
             timeLeft: MAX_TIME,
             startTime: questionStartTime,
+            selections: room.currentSelections || {},
+            roundEnded: !!room.roundEnded,
           });
           return;
         }
@@ -728,6 +734,8 @@ app.post("/game-event", (req, res) => {
                 timeLeft: remainingTime,
                 startTime: questionStartTime,
                 showResult: room.roundEnded || remainingTime <= 0,
+                selections: room.currentSelections || {},
+                roundEnded: !!room.roundEnded,
               },
             });
             return;
@@ -753,6 +761,8 @@ app.post("/game-event", (req, res) => {
                     question: room.currentQuestion,
                     timeLeft: remainingTime,
                     startTime: questionStartTime,
+                    selections: room.currentSelections || {},
+                    roundEnded: !!room.roundEnded,
                   },
                 });
               } else {
@@ -776,6 +786,8 @@ app.post("/game-event", (req, res) => {
               question: room.currentQuestion,
               timeLeft: MAX_TIME,
               startTime: Date.now(),
+              selections: room.currentSelections || {},
+              roundEnded: !!room.roundEnded,
             };
             res.json({
               success: true,
@@ -799,6 +811,8 @@ app.post("/game-event", (req, res) => {
               question: room.currentQuestion,
               timeLeft: remainingTime,
               startTime: questionStartTime,
+              selections: room.currentSelections || {},
+              roundEnded: !!room.roundEnded,
             };
             res.json({
               success: true,
@@ -835,6 +849,8 @@ app.post("/game-event", (req, res) => {
             question: randomQuestion,
             timeLeft: MAX_TIME,
             startTime: questionStartTime,
+            selections: room.currentSelections || {},
+            roundEnded: !!room.roundEnded,
           };
 
           res.json({
@@ -1959,6 +1975,8 @@ io.on("connection", (socket) => {
       },
       startTime: room.currentQuestion.startTime,
       maxTime: room.currentQuestion.maxTime,
+      selections: room.selections || {},
+      roundEnded: false,
     });
 
     if (room.timer) clearTimeout(room.timer);
