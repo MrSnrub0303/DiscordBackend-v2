@@ -15,7 +15,7 @@ app.use(
     origin: [
       "http://127.0.0.1",
       "http://localhost:5173",
-      "https://1414187165146943518.discordsays.com",
+  "https://1438780052144783371.discordsays.com",
       "https://discord-frontend-virid.vercel.app",
       "https://discordbackend-xggi.onrender.com",
     ],
@@ -1655,7 +1655,7 @@ const io = new Server(server, {
     origin: [
       "http://127.0.0.1",
       "http://localhost:5173",
-      "https://1414187165146943518.discordsays.com",
+  "https://1438780052144783371.discordsays.com",
       "https://discord-frontend-virid.vercel.app",
       "https://discordbackend-xggi.onrender.com",
     ],
