@@ -6,7 +6,6 @@ const { Server } = require("socket.io");
 const questions = require("./questions.json");
 const cors = require("cors");
 const StorageService = require("./services/StorageService");
-const { logger, safeLog } = require("./utils/logger");
 
 const app = express();
 app.use(express.json());
@@ -1609,6 +1608,7 @@ app.post("/start_question", (req, res) => {
       selections: {},
       scores: room.scores || {},
       playerNames: room.playerNames || {},
+      hostPlayerId: room.hostPlayerId,
     });
 
     res.json({
@@ -1858,6 +1858,7 @@ async function resetLeaderboards() {
       })),
       scores: room.scores,
       gameState: room.gameState,
+      hostPlayerId: room.hostPlayerId,
     });
   });
 
@@ -1935,6 +1936,7 @@ io.on("connection", (socket) => {
         gameState: rooms[channelId].gameState,
         roundEnded: rooms[channelId].roundEnded,
         timeLeft,
+        hostPlayerId: rooms[channelId].hostPlayerId,
       });
     }
   }
@@ -1969,6 +1971,7 @@ io.on("connection", (socket) => {
   socket.emit("you_joined", {
     playerId: user.id,
     isHost: rooms[channelId].hostSocketId === socket.id,
+    hostPlayerId: rooms[channelId].hostPlayerId,
   });
 
   const playersList = Object.values(rooms[channelId].players).map((p) => ({
@@ -1982,6 +1985,7 @@ io.on("connection", (socket) => {
     players: playersList,
     scores: rooms[channelId].scores,
     gameState: rooms[channelId].gameState,
+    hostPlayerId: rooms[channelId].hostPlayerId,
   });
 
   socket.on("start_question", () => {
@@ -2033,6 +2037,7 @@ io.on("connection", (socket) => {
       maxTime: room.currentQuestion.maxTime,
       selections: room.selections || {},
       roundEnded: false,
+      hostPlayerId: room.hostPlayerId,
     });
 
     if (room.timer) clearTimeout(room.timer);
@@ -2053,6 +2058,7 @@ io.on("connection", (socket) => {
         correctIndex,
         scores: room.scores,
         selections: selectionSnapshot,
+        hostPlayerId: room.hostPlayerId,
       });
       room.currentQuestion = null;
       room.selections = {};
@@ -2062,6 +2068,7 @@ io.on("connection", (socket) => {
       io.to(channelId).emit("room_state", {
         players: Object.values(room.players),
         scores: room.scores,
+        hostPlayerId: room.hostPlayerId,
       });
     }, MAX_TIME * 1000);
   });
@@ -2123,6 +2130,7 @@ io.on("connection", (socket) => {
         correctIndex,
         scores: room.scores,
         selections: selectionSnapshot,
+        hostPlayerId: room.hostPlayerId,
       });
       room.currentQuestion = null;
       room.selections = {};
@@ -2132,6 +2140,7 @@ io.on("connection", (socket) => {
       io.to(channelId).emit("room_state", {
         players: Object.values(room.players),
         scores: room.scores,
+        hostPlayerId: room.hostPlayerId,
       });
     }
   });
@@ -2176,6 +2185,7 @@ io.on("connection", (socket) => {
           newHostSocket.emit("you_joined", {
             playerId: newHostSocket.data.user.id,
             isHost: true,
+            hostPlayerId: room.hostPlayerId,
           });
         }
       }
@@ -2201,6 +2211,7 @@ io.on("connection", (socket) => {
         })),
         scores: room.scores,
         gameState: room.gameState,
+        hostPlayerId: room.hostPlayerId,
       });
     }
   });

@@ -89,46 +89,4 @@ const logger = {
   },
 };
 
-const safeLog = {
-  request: (method, path, data = {}) => {
-    if (isProd && !isDebug) {
-      logger.log(`${method} ${path}`, "[request_data_redacted]");
-    } else {
-      logger.log(`${method} ${path}`, sanitizeData(data));
-    }
-  },
-
-  response: (status, data = {}) => {
-    if (isProd && !isDebug) {
-      logger.log(`Response ${status}`, "[response_data_redacted]");
-    } else {
-      logger.log(`Response ${status}`, sanitizeData(data));
-    }
-  },
-
-  room: (message, roomId) => {
-    if (isProd && !isDebug) {
-      logger.log(message, "room_***");
-    } else {
-      logger.log(message, roomId);
-    }
-  },
-
-  player: (message, playerId) => {
-    if (isProd && !isDebug) {
-      logger.log(message, "player_***");
-    } else {
-      logger.log(message, playerId);
-    }
-  },
-
-  oauth: (message, data = {}) => {
-    if (isProd && !isDebug) {
-      logger.log(message, "[oauth_data_redacted]");
-    } else {
-      logger.log(message, sanitizeData(data));
-    }
-  },
-};
-
-module.exports = { logger, safeLog };
+module.exports = { logger };
