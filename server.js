@@ -1829,25 +1829,39 @@ async function resetLeaderboards() {
 
 scheduleNextReset();
 
-function computeScores(room) {
-  const { selections, currentQuestion } = room;
-  if (!currentQuestion) return;
-  const correct = currentQuestion.correctIndex;
-  const endTime = Date.now();
-  const startTime = currentQuestion.startTime || endTime;
-  const elapsedSec = Math.max(0, Math.floor((endTime - startTime) / 1000));
-  const remaining = Math.max(
-    0,
-    (currentQuestion.maxTime || MAX_TIME) - elapsedSec,
-  );
-  const bonusFactor = Math.ceil(
-    (remaining / (currentQuestion.maxTime || MAX_TIME)) * 10,
-  );
-  for (const uid of Object.keys(room.players)) {
-    const pick = selections[uid];
-    if (pick === correct)
-      room.players[uid].score = (room.players[uid].score || 0) + bonusFactor;
+function getClientFacingSelections(room) {
+  if (room.currentSelections && Object.keys(room.currentSelections).length > 0) {
+    const normalized = {};
+    Object.entries(room.currentSelections).forEach(([playerId, selection]) => {
+      if (selection.optionIndex !== undefined) {
+        normalized[playerId] = selection.optionIndex;
+      } else if (selection.cardAnswer !== undefined) {
+        normalized[playerId] = selection.cardAnswer;
+      }
+    });
+    return normalized;
   }
+
+  return { ...room.selections };
+}
+
+function computeScores(room) {
+  const { currentSelections, currentQuestion } = room;
+  if (!currentQuestion || !currentSelections) return;
+
+  const correctIndex = currentQuestion.correctIndex;
+
+  Object.entries(currentSelections).forEach(([playerId, selection]) => {
+    const player = room.players[playerId];
+    if (!player) {
+      return;
+    }
+
+    if (selection.optionIndex === correctIndex) {
+      const points = calculatePointsFromTime(selection.timeTaken ?? MAX_TIME);
+      player.score = (player.score || 0) + points;
+    }
+  });
 }
 
 io.on("connection", (socket) => {
@@ -1862,21 +1876,23 @@ io.on("connection", (socket) => {
       existingPlayer.connected = true;
       existingPlayer.lastActive = new Date();
 
+      const questionStartTime =
+        rooms[channelId].questionStartTime ||
+        rooms[channelId].currentQuestion?.startTime;
+      const elapsedSeconds = questionStartTime
+        ? Math.floor((Date.now() - questionStartTime) / 1000)
+        : 0;
+      const timeLeft = rooms[channelId].currentQuestion
+        ? Math.max(0, MAX_TIME - elapsedSeconds)
+        : 0;
+
       socket.emit("game_state", {
         currentQuestion: rooms[channelId].currentQuestion,
         selections: rooms[channelId].selections,
         scores: rooms[channelId].scores,
         gameState: rooms[channelId].gameState,
-        timeLeft: rooms[channelId].currentQuestion
-          ? Math.max(
-              0,
-              MAX_TIME -
-                Math.floor(
-                  (Date.now() - rooms[channelId].currentQuestion.startTime) /
-                    1000,
-                ),
-            )
-          : 0,
+        roundEnded: rooms[channelId].roundEnded,
+        timeLeft,
       });
     }
   }
@@ -1889,6 +1905,13 @@ io.on("connection", (socket) => {
       hostSocketId: socket.id,
       timer: null,
       scores: {},
+      currentSelections: {},
+      lastSelections: {},
+      playerNames: {},
+      questionStartTime: null,
+      resultShowStartTime: null,
+      lastCorrectAnswer: null,
+      roundEnded: false,
       gameState: "waiting",
       startTime: new Date(),
       lastActive: new Date(),
@@ -1905,6 +1928,8 @@ io.on("connection", (socket) => {
     socketId: socket.id,
     avatar: user.avatar,
   };
+
+  rooms[channelId].playerNames[user.id] = user.username;
 
   rooms[channelId].scores = Object.fromEntries(
     Object.entries(rooms[channelId].players).map(([id, p]) => [
@@ -1939,7 +1964,7 @@ io.on("connection", (socket) => {
 
     if (room.hostSocketId !== socket.id) return;
 
-    if (room.gameState === "active") return;
+    if (room.gameState === "playing") return;
 
     const q = pickRandomQuestion(room);
     if (!q) return;
@@ -1949,8 +1974,13 @@ io.on("connection", (socket) => {
       startTime: Date.now(),
       maxTime: MAX_TIME,
     };
+    room.questionStartTime = room.currentQuestion.startTime;
     room.selections = {};
-    room.gameState = "active";
+    room.currentSelections = {};
+    room.lastSelections = {};
+    room.lastCorrectAnswer = null;
+    room.resultShowStartTime = null;
+    room.gameState = "playing";
     room.lastActive = new Date();
     room.roundEnded = false;
 
@@ -1985,13 +2015,22 @@ io.on("connection", (socket) => {
       room.scores = Object.fromEntries(
         Object.entries(room.players).map(([id, p]) => [id, p.score || 0]),
       );
+      const selectionSnapshot = getClientFacingSelections(room);
+      const correctIndex = room.currentQuestion?.correctIndex;
+      room.lastSelections = selectionSnapshot;
+      room.lastCorrectAnswer = correctIndex;
+      room.roundEnded = true;
+      room.resultShowStartTime = Date.now();
+      room.gameState = "waiting";
+      room.questionStartTime = null;
       io.to(channelId).emit("show_result", {
-        correctIndex: room.currentQuestion.correctIndex,
+        correctIndex,
         scores: room.scores,
-        selections: room.selections,
+        selections: selectionSnapshot,
       });
       room.currentQuestion = null;
       room.selections = {};
+      room.currentSelections = {};
       room.timer = null;
 
       io.to(channelId).emit("room_state", {
@@ -2003,10 +2042,29 @@ io.on("connection", (socket) => {
 
   socket.on("select_option", ({ optionIndex }) => {
     const room = rooms[channelId];
-    if (!room || !room.currentQuestion || room.gameState !== "active") return;
+    if (!room || !room.currentQuestion || room.gameState !== "playing") return;
     if (room.selections[user.id] !== undefined) return;
 
+    if (!room.currentSelections) {
+      room.currentSelections = {};
+    }
+
+    const now = Date.now();
+    const questionStart =
+      room.questionStartTime || room.currentQuestion.startTime || now;
+    const timeTakenSeconds = Math.min(
+      MAX_TIME,
+      Math.max(0, (now - questionStart) / 1000),
+    );
+
     room.selections[user.id] = optionIndex;
+    room.currentSelections[user.id] = {
+      optionIndex,
+      timeTaken: timeTakenSeconds,
+      timestamp: now,
+    };
+    room.playerNames[user.id] =
+      room.players[user.id]?.name || user.username || room.playerNames[user.id];
     room.lastActive = new Date();
 
     analytics.totalQuestionsAnswered++;
@@ -2027,13 +2085,22 @@ io.on("connection", (socket) => {
       room.scores = Object.fromEntries(
         Object.entries(room.players).map(([id, p]) => [id, p.score || 0]),
       );
+      const selectionSnapshot = getClientFacingSelections(room);
+      const correctIndex = room.currentQuestion?.correctIndex;
+      room.lastSelections = selectionSnapshot;
+      room.lastCorrectAnswer = correctIndex;
+      room.roundEnded = true;
+      room.resultShowStartTime = Date.now();
+      room.gameState = "waiting";
+      room.questionStartTime = null;
       io.to(channelId).emit("show_result", {
-        correctIndex: room.currentQuestion.correctIndex,
+        correctIndex,
         scores: room.scores,
-        selections: room.selections,
+        selections: selectionSnapshot,
       });
       room.currentQuestion = null;
       room.selections = {};
+      room.currentSelections = {};
       room.timer = null;
 
       io.to(channelId).emit("room_state", {
