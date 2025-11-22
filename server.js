@@ -20,7 +20,6 @@ app.use(
       "https://discordbackend-xggi.onrender.com",
     ],
     credentials: true,
-    methods: ["GET", "POST"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
@@ -51,6 +50,96 @@ const analytics = {
     uniquePlayers: new Set(),
   },
 };
+
+const HOST_INACTIVE_TIMEOUT = 1000 * 60 * 2; // 2 minutes
+
+const rooms = {};
+
+const buildInitialRoomState = () => ({
+  players: {},
+  currentQuestion: null,
+  selections: {},
+  currentSelections: {},
+  lastSelections: {},
+  hostSocketId: null,
+  timer: null,
+  gameState: "waiting",
+  startTime: new Date(),
+  lastActive: new Date(),
+  scores: {},
+  playerNames: {},
+  questionHistory: [],
+  questionStartTime: null,
+  resultShowStartTime: null,
+  lastCorrectAnswer: null,
+  roundEnded: false,
+  generatingQuestion: false,
+  lastQuestionGenerated: null,
+  hostPlayerId: null,
+  hostLastActiveAt: null,
+});
+
+function ensureRoom(roomId) {
+  if (!roomId) {
+    return null;
+  }
+
+  if (!rooms[roomId]) {
+    rooms[roomId] = buildInitialRoomState();
+  } else if (!Object.prototype.hasOwnProperty.call(rooms[roomId], "hostPlayerId")) {
+    rooms[roomId].hostPlayerId = null;
+    rooms[roomId].hostLastActiveAt = null;
+  }
+
+  return rooms[roomId];
+}
+
+function assertHostControl(room, playerId, options = {}) {
+  const { allowClaim = false, allowTakeover = false } = options;
+
+  if (!playerId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Missing playerId",
+    };
+  }
+
+  if (!room.hostPlayerId) {
+    if (allowClaim) {
+      room.hostPlayerId = playerId;
+      room.hostLastActiveAt = Date.now();
+      return { ok: true, claimed: true };
+    }
+
+    return {
+      ok: false,
+      status: 409,
+      error: "Host has not been assigned yet",
+    };
+  }
+
+  if (room.hostPlayerId === playerId) {
+    room.hostLastActiveAt = Date.now();
+    return { ok: true };
+  }
+
+  if (
+    allowTakeover &&
+    room.hostLastActiveAt &&
+    Date.now() - room.hostLastActiveAt > HOST_INACTIVE_TIMEOUT
+  ) {
+    room.hostPlayerId = playerId;
+    room.hostLastActiveAt = Date.now();
+    return { ok: true, reassigned: true };
+  }
+
+  return {
+    ok: false,
+    status: 403,
+    error: "Only the host can perform this action",
+  };
+}
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
   process.exit(1);
@@ -200,19 +289,7 @@ app.post("/api/game-event", (req, res) => {
 
   try {
     if (data.roomId && !rooms[data.roomId]) {
-      rooms[data.roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[data.roomId] = buildInitialRoomState();
     }
 
     switch (event) {
@@ -700,19 +777,7 @@ app.post("/game-event", (req, res) => {
 
   try {
     if (data.roomId && !rooms[data.roomId]) {
-      rooms[data.roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[data.roomId] = buildInitialRoomState();
     }
 
     switch (event) {
@@ -1052,19 +1117,7 @@ app.get("/api/game-state/:roomId", (req, res) => {
 
   try {
     if (roomId && !rooms[roomId]) {
-      rooms[roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[roomId] = buildInitialRoomState();
     }
 
     const room = rooms[roomId];
@@ -1165,19 +1218,7 @@ app.get("/game-state/:roomId", (req, res) => {
 
   try {
     if (roomId && !rooms[roomId]) {
-      rooms[roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[roomId] = buildInitialRoomState();
     }
 
     const room = rooms[roomId];
@@ -1211,6 +1252,7 @@ app.get("/game-state/:roomId", (req, res) => {
           selections: selectionsToSend,
           scores: room.scores || {},
           playerNames: room.playerNames || {},
+          hostPlayerId: room.hostPlayerId,
         });
         return;
       }
@@ -1229,6 +1271,7 @@ app.get("/game-state/:roomId", (req, res) => {
         selections: selectionsToSend,
         scores: room.scores || {},
         playerNames: room.playerNames || {},
+        hostPlayerId: room.hostPlayerId,
       });
     } else {
       res.json({
@@ -1239,6 +1282,7 @@ app.get("/game-state/:roomId", (req, res) => {
         gameState: "waiting",
         roundEnded: false,
         questionStartTime: null,
+        hostPlayerId: room ? room.hostPlayerId : null,
       });
     }
   } catch (error) {
@@ -1247,7 +1291,7 @@ app.get("/game-state/:roomId", (req, res) => {
 });
 
 app.post("/api/start_question", (req, res) => {
-  const { roomId, forceNew } = req.body;
+  const { roomId, forceNew, playerId } = req.body;
 
   if (!roomId) {
     return res.status(400).json({ success: false, error: "Missing roomId" });
@@ -1255,19 +1299,7 @@ app.post("/api/start_question", (req, res) => {
 
   try {
     if (!rooms[roomId]) {
-      rooms[roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[roomId] = buildInitialRoomState();
     }
 
     const room = rooms[roomId];
@@ -1284,6 +1316,7 @@ app.post("/api/start_question", (req, res) => {
         timeLeft: remainingTime,
         startTime: questionStartTime,
         showResult: room.roundEnded || remainingTime <= 0,
+        hostPlayerId: room.hostPlayerId,
       });
     }
 
@@ -1301,8 +1334,24 @@ app.post("/api/start_question", (req, res) => {
           timeLeft: remainingTime,
           startTime: room.questionStartTime,
           showResult: room.roundEnded || remainingTime <= 0,
+          hostPlayerId: room.hostPlayerId,
         });
       }
+    }
+
+    const hostCheck = assertHostControl(room, playerId, {
+      allowClaim: true,
+      allowTakeover: true,
+    });
+
+    if (!hostCheck.ok) {
+      return res
+        .status(hostCheck.status)
+        .json({
+          success: false,
+          error: hostCheck.error,
+          hostPlayerId: room.hostPlayerId,
+        });
     }
 
     if (room.generatingQuestion) {
@@ -1318,6 +1367,7 @@ app.post("/api/start_question", (req, res) => {
           timeLeft: remainingTime,
           startTime: questionStartTime,
           showResult: room.roundEnded || remainingTime <= 0,
+          hostPlayerId: room.hostPlayerId,
         });
       } else {
         return res
@@ -1325,6 +1375,7 @@ app.post("/api/start_question", (req, res) => {
           .json({
             success: false,
             error: "Question generation in progress, try again",
+            hostPlayerId: room.hostPlayerId,
           });
       }
     }
@@ -1342,11 +1393,16 @@ app.post("/api/start_question", (req, res) => {
           timeLeft: remainingTime,
           startTime: questionStartTime,
           showResult: room.roundEnded || remainingTime <= 0,
+          hostPlayerId: room.hostPlayerId,
         });
       } else {
         return res
           .status(429)
-          .json({ success: false, error: "Rate limited: too many requests" });
+          .json({
+            success: false,
+            error: "Rate limited: too many requests",
+            hostPlayerId: room.hostPlayerId,
+          });
       }
     }
 
@@ -1366,6 +1422,7 @@ app.post("/api/start_question", (req, res) => {
           timeLeft: remainingTime,
           startTime: questionStartTime,
           showResult: room.roundEnded || remainingTime <= 0,
+          hostPlayerId: room.hostPlayerId,
         });
       } else {
         return res
@@ -1373,6 +1430,7 @@ app.post("/api/start_question", (req, res) => {
           .json({
             success: false,
             error: "Question generation in progress, try again",
+            hostPlayerId: room.hostPlayerId,
           });
       }
     }
@@ -1415,6 +1473,7 @@ app.post("/api/start_question", (req, res) => {
       selections: {},
       scores: room.scores || {},
       playerNames: room.playerNames || {},
+      hostPlayerId: room.hostPlayerId,
     });
 
     res.json({
@@ -1422,6 +1481,7 @@ app.post("/api/start_question", (req, res) => {
       question: randomQuestion,
       timeLeft: MAX_TIME,
       startTime: questionStartTime,
+      hostPlayerId: room.hostPlayerId,
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to start question" });
@@ -1437,19 +1497,7 @@ app.post("/start_question", (req, res) => {
 
   try {
     if (!rooms[roomId]) {
-      rooms[roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[roomId] = buildInitialRoomState();
     }
 
     const room = rooms[roomId];
@@ -1575,7 +1623,7 @@ app.post("/start_question", (req, res) => {
 });
 
 app.post("/api/sync_local_question", (req, res) => {
-  const { roomId, question, timeLeft } = req.body;
+  const { roomId, question, timeLeft, playerId } = req.body;
 
   if (!roomId || !question) {
     return res
@@ -1585,22 +1633,25 @@ app.post("/api/sync_local_question", (req, res) => {
 
   try {
     if (!rooms[roomId]) {
-      rooms[roomId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        playerNames: {},
-        questionHistory: [],
-      };
+      rooms[roomId] = buildInitialRoomState();
     }
 
     const room = rooms[roomId];
+
+    const hostCheck = assertHostControl(room, playerId, {
+      allowClaim: true,
+      allowTakeover: true,
+    });
+
+    if (!hostCheck.ok) {
+      return res
+        .status(hostCheck.status)
+        .json({
+          success: false,
+          error: hostCheck.error,
+          hostPlayerId: room.hostPlayerId,
+        });
+    }
 
     if (!room.currentQuestion) {
       const now = Date.now();
@@ -1629,6 +1680,7 @@ app.post("/api/sync_local_question", (req, res) => {
         message: "Local question synced to server",
         question: room.currentQuestion,
         timeLeft: timeLeft || MAX_TIME,
+        hostPlayerId: room.hostPlayerId,
       });
     } else {
       const now = Date.now();
@@ -1642,6 +1694,7 @@ app.post("/api/sync_local_question", (req, res) => {
         question: room.currentQuestion,
         timeLeft: remainingTime,
         hadExisting: true,
+        hostPlayerId: room.hostPlayerId,
       });
     }
   } catch (error) {
@@ -1663,8 +1716,6 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-
-const rooms = {};
 
 io.use(async (socket, next) => {
   try {
@@ -1688,19 +1739,10 @@ io.use(async (socket, next) => {
     socket.data.channelId = channelId;
 
     if (!rooms[channelId]) {
-      rooms[channelId] = {
-        players: {},
-        currentQuestion: null,
-        selections: {},
-        hostSocketId: null,
-        timer: null,
-        gameState: "waiting",
-        startTime: new Date(),
-        lastActive: new Date(),
-        scores: {},
-        questionHistory: [],
-      };
+      rooms[channelId] = buildInitialRoomState();
     }
+
+    rooms[channelId].hostSocketId = rooms[channelId].hostSocketId || socket.id;
 
     return next();
   } catch (err) {
@@ -1898,26 +1940,10 @@ io.on("connection", (socket) => {
   }
 
   if (!rooms[channelId]) {
-    rooms[channelId] = {
-      players: {},
-      selections: {},
-      currentQuestion: null,
-      hostSocketId: socket.id,
-      timer: null,
-      scores: {},
-      currentSelections: {},
-      lastSelections: {},
-      playerNames: {},
-      questionStartTime: null,
-      resultShowStartTime: null,
-      lastCorrectAnswer: null,
-      roundEnded: false,
-      gameState: "waiting",
-      startTime: new Date(),
-      lastActive: new Date(),
-      questionHistory: [],
-    };
+    rooms[channelId] = buildInitialRoomState();
   }
+
+  rooms[channelId].hostSocketId = rooms[channelId].hostSocketId || socket.id;
 
   rooms[channelId].lastActive = new Date();
 
