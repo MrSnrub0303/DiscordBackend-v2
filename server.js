@@ -93,6 +93,28 @@ function ensureRoom(roomId) {
   return rooms[roomId];
 }
 
+function resetActiveRound(room) {
+  if (!room) {
+    return;
+  }
+
+  if (room.timer) {
+    clearTimeout(room.timer);
+    room.timer = null;
+  }
+
+  room.currentQuestion = null;
+  room.questionStartTime = null;
+  room.resultShowStartTime = null;
+  room.roundEnded = false;
+  room.gameState = "waiting";
+  room.selections = {};
+  room.currentSelections = {};
+  room.lastSelections = {};
+  room.lastCorrectAnswer = null;
+  room.generatingQuestion = false;
+}
+
 function assertHostControl(room, playerId, options = {}) {
   const { allowClaim = false, allowTakeover = false } = options;
 
@@ -2187,7 +2209,9 @@ io.on("connection", (socket) => {
     delete room.players[user.id];
     delete room.scores[user.id];
 
-    if (room.hostSocketId === socket.id) {
+    const hostDisconnected = room.hostSocketId === socket.id;
+
+    if (hostDisconnected) {
       const sockets = Array.from(io.sockets.adapter.rooms.get(channelId) ?? []);
       room.hostSocketId = sockets.length > 0 ? sockets[0] : null;
 
@@ -2206,6 +2230,19 @@ io.on("connection", (socket) => {
         room.hostPlayerId = null;
         room.hostLastActiveAt = null;
       }
+
+      resetActiveRound(room);
+
+      io.to(channelId).emit("game_state", {
+        currentQuestion: null,
+        selections: {},
+        scores: room.scores,
+        gameState: room.gameState,
+        roundEnded: false,
+        timeLeft: MAX_TIME,
+        hostPlayerId: room.hostPlayerId,
+        showResult: false,
+      });
     }
 
     if (Object.keys(room.players).length === 0) {
