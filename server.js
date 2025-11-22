@@ -1946,6 +1946,13 @@ io.on("connection", (socket) => {
   }
 
   rooms[channelId].hostSocketId = rooms[channelId].hostSocketId || socket.id;
+  if (
+    !rooms[channelId].hostPlayerId ||
+    rooms[channelId].hostSocketId === socket.id
+  ) {
+    rooms[channelId].hostPlayerId = user.id;
+    rooms[channelId].hostLastActiveAt = Date.now();
+  }
 
   rooms[channelId].lastActive = new Date();
 
@@ -1958,6 +1965,11 @@ io.on("connection", (socket) => {
   };
 
   rooms[channelId].playerNames[user.id] = user.username;
+
+  if (rooms[channelId].hostSocketId === socket.id) {
+    rooms[channelId].hostPlayerId = user.id;
+    rooms[channelId].hostLastActiveAt = Date.now();
+  }
 
   rooms[channelId].scores = Object.fromEntries(
     Object.entries(rooms[channelId].players).map(([id, p]) => [
@@ -2182,12 +2194,17 @@ io.on("connection", (socket) => {
       if (room.hostSocketId) {
         const newHostSocket = io.sockets.sockets.get(room.hostSocketId);
         if (newHostSocket) {
+          room.hostPlayerId = newHostSocket.data.user.id;
+          room.hostLastActiveAt = Date.now();
           newHostSocket.emit("you_joined", {
             playerId: newHostSocket.data.user.id,
             isHost: true,
             hostPlayerId: room.hostPlayerId,
           });
         }
+      } else {
+        room.hostPlayerId = null;
+        room.hostLastActiveAt = null;
       }
     }
 
