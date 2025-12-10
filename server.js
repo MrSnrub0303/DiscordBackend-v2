@@ -167,22 +167,7 @@ app.post("/api/token", async (req, res) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-    const text = await resp.text();
-
-    if (!resp.ok) {
-      return res
-        .status(resp.status || 500)
-        .json({ error: "discord_token_exchange_failed", details: text });
-    }
-
-    let json;
-    try {
-      json = JSON.parse(text);
-    } catch (err) {
-      return res
-        .status(500)
-        .json({ error: "discord_response_parse_failed", details: text });
-    }
+    const json = await resp.json();
 
     return res.json(json);
   } catch (err) {
@@ -2265,5 +2250,3 @@ if (process.env.NODE_ENV === "production") {
 }
 
 server.listen(PORT, () => {});
-
-
