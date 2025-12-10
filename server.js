@@ -27,6 +27,8 @@ const PORT = process.env.PORT || 3001;
 const CLIENT_ID = process.env.VITE_DISCORD_CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const MAX_TIME = 20;
+const DISCORD_REDIRECT_URI =
+  process.env.DISCORD_REDIRECT_URI || process.env.REDIRECT_URI || "https://discord.com";
 
 const MAX_POINTS = 150;
 const SCORING_EXPONENT = 2;
@@ -181,6 +183,7 @@ app.post("/api/token", async (req, res) => {
     client_secret: CLIENT_SECRET,
     grant_type: "authorization_code",
     code,
+    redirect_uri: DISCORD_REDIRECT_URI,
   });
 
   try {
@@ -189,11 +192,31 @@ app.post("/api/token", async (req, res) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-    const json = await resp.json();
+    const text = await resp.text();
+    const json = (() => {
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { error: "invalid_json", raw: text };
+      }
+    })();
+
+    if (!resp.ok) {
+      console.error("/api/token exchange failed", {
+        status: resp.status,
+        statusText: resp.statusText,
+        redirect: DISCORD_REDIRECT_URI,
+        body: text,
+      });
+      return res.status(resp.status).json(json);
+    }
 
     return res.json(json);
   } catch (err) {
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("/api/token unexpected error", err);
+    return res
+      .status(500)
+      .json({ error: "Internal server error", detail: err.message });
   }
 });
 
@@ -206,6 +229,7 @@ app.post("/token", async (req, res) => {
     client_secret: CLIENT_SECRET,
     grant_type: "authorization_code",
     code,
+    redirect_uri: DISCORD_REDIRECT_URI,
   });
 
   try {
@@ -214,11 +238,31 @@ app.post("/token", async (req, res) => {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-    const json = await resp.json();
+    const text = await resp.text();
+    const json = (() => {
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { error: "invalid_json", raw: text };
+      }
+    })();
+
+    if (!resp.ok) {
+      console.error("/token exchange failed", {
+        status: resp.status,
+        statusText: resp.statusText,
+        redirect: DISCORD_REDIRECT_URI,
+        body: text,
+      });
+      return res.status(resp.status).json(json);
+    }
 
     return res.json(json);
   } catch (err) {
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("/token unexpected error", err);
+    return res
+      .status(500)
+      .json({ error: "Internal server error", detail: err.message });
   }
 });
 
