@@ -283,6 +283,38 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+app.get("/api/test-discord", async (req, res) => {
+  try {
+    console.log('[Test] Testing Discord API connectivity...');
+    
+    const testResp = await fetch("https://discord.com/api/v10/gateway", {
+      method: "GET",
+      headers: { "User-Agent": "DiscordBot (https://github.com/discord/discord-api-docs, 1.0)" }
+    });
+    
+    console.log('[Test] Discord API status:', testResp.status);
+    console.log('[Test] Content-Type:', testResp.headers.get('content-type'));
+    
+    const text = await testResp.text();
+    console.log('[Test] Response preview:', text.substring(0, 200));
+    
+    res.json({
+      success: true,
+      status: testResp.status,
+      contentType: testResp.headers.get('content-type'),
+      preview: text.substring(0, 200),
+      canReachDiscord: testResp.status === 200
+    });
+  } catch (err) {
+    console.error('[Test] Failed:', err.message);
+    res.status(500).json({
+      success: false,
+      error: err.message,
+      canReachDiscord: false
+    });
+  }
+});
+
 app.get("/health", (req, res) => {
   res.json({
     status: "healthy",
