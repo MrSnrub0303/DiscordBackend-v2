@@ -187,16 +187,31 @@ app.post("/token", async (req, res) => {
   });
 
   try {
+    console.log('[Token /token] Starting token exchange...');
+    
+    if (!CLIENT_ID || !CLIENT_SECRET) {
+      console.error('[Token /token] Missing credentials');
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+    
     const resp = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
+    
     const json = await resp.json();
-
+    
+    if (!resp.ok) {
+      console.error('[Token /token] Discord API error:', json);
+      return res.status(resp.status).json(json);
+    }
+    
+    console.log('[Token /token] Success');
     return res.json(json);
   } catch (err) {
-    return res.status(500).json({ error: "Internal server error" });
+    console.error('[Token /token] Exception:', err.message);
+    return res.status(500).json({ error: "Internal server error", details: err.message });
   }
 });
 
