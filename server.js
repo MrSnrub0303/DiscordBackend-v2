@@ -162,16 +162,53 @@ app.post("/api/token", async (req, res) => {
   });
 
   try {
+    console.log('[Token API] Starting token exchange...');
+    console.log('[Token API] Code length:', code?.length);
+    
+    if (!CLIENT_ID || !CLIENT_SECRET) {
+      console.error('[Token API] Missing credentials');
+      return res.status(500).json({ error: "Server configuration error" });
+    }
+    
+    console.log('[Token API] Making request to Discord API...');
+    
     const resp = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
+    
+    console.log('[Token API] Response status:', resp.status);
+    console.log('[Token API] Response content-type:', resp.headers.get('content-type'));
+    
+    const contentType = resp.headers.get('content-type');
+    
+    if (!contentType || !contentType.includes('application/json')) {
+      const textResponse = await resp.text();
+      console.error('[Token API] Non-JSON response:', textResponse.substring(0, 200));
+      return res.status(502).json({ 
+        error: "Invalid response from Discord API",
+        details: "Expected JSON but received HTML. Network or proxy issue."
+      });
+    }
+    
     const json = await resp.json();
-
+    
+    if (!resp.ok) {
+      console.error('[Token API] Discord API error:', json);
+      return res.status(resp.status).json(json);
+    }
+    
+    console.log('[Token API] Success');
     return res.json(json);
   } catch (err) {
-    return res.status(500).json({ error: "Internal server error" });
+    console.error('[Token API] Exception:', err.message);
+    console.error('[Token API] Stack:', err.stack);
+    return res.status(500).json({ 
+      error: "Internal server error", 
+      details: err.message,
+      type: err.name 
+    });
   }
 });
 
@@ -188,17 +225,35 @@ app.post("/token", async (req, res) => {
 
   try {
     console.log('[Token /token] Starting token exchange...');
+    console.log('[Token /token] Code length:', code?.length);
     
     if (!CLIENT_ID || !CLIENT_SECRET) {
       console.error('[Token /token] Missing credentials');
       return res.status(500).json({ error: "Server configuration error" });
     }
     
+    console.log('[Token /token] Making request to Discord API...');
+    
     const resp = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
+    
+    console.log('[Token /token] Response status:', resp.status);
+    console.log('[Token /token] Response content-type:', resp.headers.get('content-type'));
+    
+    const contentType = resp.headers.get('content-type');
+    
+    // Check if response is actually JSON
+    if (!contentType || !contentType.includes('application/json')) {
+      const textResponse = await resp.text();
+      console.error('[Token /token] Non-JSON response received:', textResponse.substring(0, 200));
+      return res.status(502).json({ 
+        error: "Invalid response from Discord API",
+        details: "Expected JSON but received HTML. This usually indicates a network or proxy issue."
+      });
+    }
     
     const json = await resp.json();
     
@@ -211,7 +266,12 @@ app.post("/token", async (req, res) => {
     return res.json(json);
   } catch (err) {
     console.error('[Token /token] Exception:', err.message);
-    return res.status(500).json({ error: "Internal server error", details: err.message });
+    console.error('[Token /token] Stack:', err.stack);
+    return res.status(500).json({ 
+      error: "Internal server error", 
+      details: err.message,
+      type: err.name 
+    });
   }
 });
 
