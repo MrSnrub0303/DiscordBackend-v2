@@ -1262,6 +1262,21 @@ app.get("/api/game-state/:roomId", (req, res) => {
           const selectionsToSend = room.roundEnded
             ? room.lastSelections || {}
             : room.currentSelections || {};
+          
+          // Normalize selections for client
+          const normalizedSelections = {};
+          for (const [playerId, selection] of Object.entries(selectionsToSend)) {
+            if (typeof selection === 'object' && selection !== null) {
+              if (selection.isCorrect !== undefined) {
+                normalizedSelections[playerId] = selection.isCorrect;
+              } else if (selection.optionIndex !== undefined) {
+                normalizedSelections[playerId] = selection.optionIndex;
+              }
+            } else {
+              normalizedSelections[playerId] = selection;
+            }
+          }
+          
           res.json({
             success: true,
             currentQuestion: room.currentQuestion,
@@ -1270,7 +1285,7 @@ app.get("/api/game-state/:roomId", (req, res) => {
             gameState: "active",
             roundEnded: room.roundEnded,
             questionStartTime: room.questionStartTime,
-            selections: selectionsToSend,
+            selections: normalizedSelections,
             scores: room.scores || {},
             playerNames: room.playerNames || {},
           });
@@ -1282,6 +1297,24 @@ app.get("/api/game-state/:roomId", (req, res) => {
         ? room.lastSelections || {}
         : room.currentSelections || {};
 
+      // Normalize selections for client - convert objects to simple values
+      const normalizedSelections = {};
+      for (const [playerId, selection] of Object.entries(selectionsToSend)) {
+        if (typeof selection === 'object' && selection !== null) {
+          // HC card selection: convert to boolean based on isCorrect
+          if (selection.isCorrect !== undefined) {
+            normalizedSelections[playerId] = selection.isCorrect;
+          }
+          // Regular trivia selection: convert to optionIndex
+          else if (selection.optionIndex !== undefined) {
+            normalizedSelections[playerId] = selection.optionIndex;
+          }
+        } else {
+          // Already a simple value
+          normalizedSelections[playerId] = selection;
+        }
+      }
+
       const showResultValue = room.roundEnded;
       res.json({
         success: true,
@@ -1291,7 +1324,7 @@ app.get("/api/game-state/:roomId", (req, res) => {
         gameState: room.gameState,
         roundEnded: room.roundEnded,
         questionStartTime: room.questionStartTime,
-        selections: selectionsToSend,
+        selections: normalizedSelections,
         scores: room.scores || {},
         playerNames: room.playerNames || {},
       });
@@ -1342,6 +1375,21 @@ app.get("/game-state/:roomId", (req, res) => {
         const selectionsToSend = room.roundEnded
           ? room.lastSelections || {}
           : room.currentSelections || {};
+        
+        // Normalize selections for client
+        const normalizedSelections = {};
+        for (const [playerId, selection] of Object.entries(selectionsToSend)) {
+          if (typeof selection === 'object' && selection !== null) {
+            if (selection.isCorrect !== undefined) {
+              normalizedSelections[playerId] = selection.isCorrect;
+            } else if (selection.optionIndex !== undefined) {
+              normalizedSelections[playerId] = selection.optionIndex;
+            }
+          } else {
+            normalizedSelections[playerId] = selection;
+          }
+        }
+        
         res.json({
           success: true,
           currentQuestion: room.currentQuestion,
@@ -1350,7 +1398,7 @@ app.get("/game-state/:roomId", (req, res) => {
           gameState: "active",
           roundEnded: room.roundEnded,
           questionStartTime: room.questionStartTime,
-          selections: selectionsToSend,
+          selections: normalizedSelections,
           scores: room.scores || {},
           playerNames: room.playerNames || {},
           hostPlayerId: room.hostPlayerId,
@@ -1361,6 +1409,21 @@ app.get("/game-state/:roomId", (req, res) => {
       const selectionsToSend = room.roundEnded
         ? room.lastSelections || {}
         : room.currentSelections || {};
+      
+      // Normalize selections for client
+      const normalizedSelections = {};
+      for (const [playerId, selection] of Object.entries(selectionsToSend)) {
+        if (typeof selection === 'object' && selection !== null) {
+          if (selection.isCorrect !== undefined) {
+            normalizedSelections[playerId] = selection.isCorrect;
+          } else if (selection.optionIndex !== undefined) {
+            normalizedSelections[playerId] = selection.optionIndex;
+          }
+        } else {
+          normalizedSelections[playerId] = selection;
+        }
+      }
+      
       res.json({
         success: true,
         currentQuestion: room.currentQuestion,
@@ -1369,7 +1432,7 @@ app.get("/game-state/:roomId", (req, res) => {
         gameState: room.gameState,
         roundEnded: room.roundEnded,
         questionStartTime: room.questionStartTime,
-        selections: selectionsToSend,
+        selections: normalizedSelections,
         scores: room.scores || {},
         playerNames: room.playerNames || {},
         hostPlayerId: room.hostPlayerId,
