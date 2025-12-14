@@ -2223,40 +2223,7 @@ io.on("connection", (socket) => {
       playerName: room.players[user.id].name,
     });
 
-    const connectedPlayerCount = Object.keys(room.players).length;
-    const answeredCount = Object.keys(room.selections).length;
-    if (answeredCount >= connectedPlayerCount) {
-      if (room.timer) clearTimeout(room.timer);
-
-      computeScores(room);
-      room.scores = Object.fromEntries(
-        Object.entries(room.players).map(([id, p]) => [id, p.score || 0]),
-      );
-      const selectionSnapshot = getClientFacingSelections(room);
-      const correctIndex = room.currentQuestion?.correctIndex;
-      room.lastSelections = selectionSnapshot;
-      room.lastCorrectAnswer = correctIndex;
-      room.roundEnded = true;
-      room.resultShowStartTime = Date.now();
-      room.gameState = "waiting";
-      room.questionStartTime = null;
-      io.to(channelId).emit("show_result", {
-        correctIndex,
-        scores: room.scores,
-        selections: selectionSnapshot,
-        hostPlayerId: room.hostPlayerId,
-      });
-      room.currentQuestion = null;
-      room.selections = {};
-      room.currentSelections = {};
-      room.timer = null;
-
-      io.to(channelId).emit("room_state", {
-        players: Object.values(room.players),
-        scores: room.scores,
-        hostPlayerId: room.hostPlayerId,
-      });
-    }
+    // Do NOT auto-end early; wait for the timer or host action so the round stays active
   });
 
   socket.on("activity_ended", ({ roomId: requestedRoomId }) => {
