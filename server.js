@@ -548,6 +548,16 @@ app.post("/api/game-event", (req, res) => {
 
           room.lastActive = new Date();
 
+          // Broadcast to all clients in the room so they can see who answered
+          if (io) {
+            io.to(data.roomId).emit("player_selected", {
+              playerId: data.playerId,
+              optionIndex: data.optionIndex,
+              playerName: data.playerName || room.playerNames[data.playerId] || "Player",
+              isCorrect: data.isCorrect,
+            });
+          }
+
           res.json({
             success: true,
             message: isChange ? "Selection changed" : "Selection recorded",
