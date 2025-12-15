@@ -1271,6 +1271,7 @@ app.post("/game-event", (req, res) => {
 
 app.get("/api/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
+  console.log(`[game-state] Request for room ${roomId}`);
 
   try {
     if (roomId && !rooms[roomId]) {
@@ -1278,6 +1279,12 @@ app.get("/api/game-state/:roomId", (req, res) => {
     }
 
     const room = rooms[roomId];
+    console.log(`[game-state] Room state:`, {
+      hasQuestion: !!room?.currentQuestion,
+      currentSelections: room?.currentSelections,
+      scores: room?.scores,
+      roundEnded: room?.roundEnded,
+    });
     if (room && room.currentQuestion) {
       let remainingTime = MAX_TIME;
       if (room.questionStartTime) {
