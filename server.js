@@ -531,9 +531,38 @@ app.post("/api/game-event", (req, res) => {
             selection.optionIndex = data.optionIndex;
           }
 
+          // Check if this is a NEW correct answer (not already scored)
+          const previouslyScored = room.currentSelections[data.playerId]?.scored;
+          
           room.currentSelections[data.playerId] = selection;
           console.log(`[select_option REST] Stored selection for player ${data.playerId}:`, JSON.stringify(selection));
           console.log(`[select_option REST] All currentSelections:`, JSON.stringify(room.currentSelections));
+
+          // IMMEDIATE SCORE COMPUTATION for correct answers (proxy mode real-time sync)
+          if (!previouslyScored && room.currentQuestion) {
+            let isCorrect = false;
+            
+            if (data.cardAnswer !== undefined) {
+              // Card mode: isCorrect is sent by client
+              isCorrect = data.isCorrect === true;
+            } else if (data.optionIndex !== undefined) {
+              // Trivia mode: check against correctIndex
+              isCorrect = data.optionIndex === room.currentQuestion.correctIndex;
+            }
+            
+            if (isCorrect) {
+              const points = calculatePointsFromTime(data.timeTaken ?? MAX_TIME);
+              room.scores[data.playerId] = (room.scores[data.playerId] || 0) + points;
+              room.currentSelections[data.playerId].scored = true; // Mark as scored to prevent double-scoring
+              
+              // Update player object if exists
+              if (room.players[data.playerId]) {
+                room.players[data.playerId].score = room.scores[data.playerId];
+              }
+              
+              console.log(`[select_option REST] Awarded ${points} points to player ${data.playerId}. New score: ${room.scores[data.playerId]}`);
+            }
+          }
 
           if (room.roundEnded && room.lastSelections) {
             if (data.optionIndex !== undefined) {
@@ -2082,6 +2111,11 @@ function computeScores(room) {
   }
 
   Object.entries(currentSelections).forEach(([playerId, selection]) => {
+    // Skip if already scored during selection (real-time scoring for proxy mode)
+    if (selection.scored) {
+      return;
+    }
+    
     // Initialize score for this player if not present
     if (room.scores[playerId] === undefined) {
       room.scores[playerId] = 0;
