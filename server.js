@@ -561,6 +561,13 @@ app.post("/api/game-event", (req, res) => {
           const room = rooms[data.roomId];
 
           if (room.roundEnded) {
+            // Broadcast cached results to ensure all clients receive them
+            io.to(data.roomId).emit("round_complete", {
+              selections: room.lastSelections || {},
+              scores: room.scores || {},
+              playerNames: room.playerNames || {},
+              correctAnswer: room.lastCorrectAnswer,
+            });
             res.json({
               success: true,
               action: "round_complete",
@@ -637,6 +644,14 @@ app.post("/api/game-event", (req, res) => {
               correctAnswer: correctAnswer,
             },
           };
+
+          // Broadcast updated scores to ALL clients in the room
+          io.to(data.roomId).emit("round_complete", {
+            selections: clientSelections,
+            scores: room.scores || {},
+            playerNames: room.playerNames || {},
+            correctAnswer: correctAnswer,
+          });
 
           res.json(responseData);
 
@@ -1119,6 +1134,13 @@ app.post("/game-event", (req, res) => {
           const room = rooms[data.roomId];
 
           if (room.roundEnded) {
+            // Broadcast cached results to ensure all clients receive them
+            io.to(data.roomId).emit("round_complete", {
+              selections: room.lastSelections || {},
+              scores: room.scores || {},
+              playerNames: room.playerNames || {},
+              correctAnswer: room.lastCorrectAnswer,
+            });
             res.json({
               success: true,
               action: "round_complete",
@@ -1195,6 +1217,14 @@ app.post("/game-event", (req, res) => {
               correctAnswer: correctAnswer,
             },
           };
+
+          // Broadcast updated scores to ALL clients in the room
+          io.to(data.roomId).emit("round_complete", {
+            selections: clientSelections,
+            scores: room.scores || {},
+            playerNames: room.playerNames || {},
+            correctAnswer: correctAnswer,
+          });
 
           res.json(responseData);
 
