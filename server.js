@@ -561,13 +561,6 @@ app.post("/api/game-event", (req, res) => {
           const room = rooms[data.roomId];
 
           if (room.roundEnded) {
-            // Broadcast cached results to ensure all clients receive them
-            io.to(data.roomId).emit("round_complete", {
-              selections: room.lastSelections || {},
-              scores: room.scores || {},
-              playerNames: room.playerNames || {},
-              correctAnswer: room.lastCorrectAnswer,
-            });
             res.json({
               success: true,
               action: "round_complete",
@@ -645,15 +638,12 @@ app.post("/api/game-event", (req, res) => {
             },
           };
 
-          // Broadcast updated scores to ALL clients in the room
-          io.to(data.roomId).emit("round_complete", {
-            selections: clientSelections,
-            scores: room.scores || {},
-            playerNames: room.playerNames || {},
-            correctAnswer: correctAnswer,
-          });
-
           res.json(responseData);
+
+          // Broadcast scores and selections to all socket clients in the room
+          if (io) {
+            io.to(data.roomId).emit("round_complete", responseData.data);
+          }
 
           room.currentSelections = {};
 
@@ -1134,13 +1124,6 @@ app.post("/game-event", (req, res) => {
           const room = rooms[data.roomId];
 
           if (room.roundEnded) {
-            // Broadcast cached results to ensure all clients receive them
-            io.to(data.roomId).emit("round_complete", {
-              selections: room.lastSelections || {},
-              scores: room.scores || {},
-              playerNames: room.playerNames || {},
-              correctAnswer: room.lastCorrectAnswer,
-            });
             res.json({
               success: true,
               action: "round_complete",
@@ -1218,15 +1201,12 @@ app.post("/game-event", (req, res) => {
             },
           };
 
-          // Broadcast updated scores to ALL clients in the room
-          io.to(data.roomId).emit("round_complete", {
-            selections: clientSelections,
-            scores: room.scores || {},
-            playerNames: room.playerNames || {},
-            correctAnswer: correctAnswer,
-          });
-
           res.json(responseData);
+
+          // Broadcast scores and selections to all socket clients in the room
+          if (io) {
+            io.to(data.roomId).emit("round_complete", responseData.data);
+          }
 
           room.currentSelections = {};
 
