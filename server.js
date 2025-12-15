@@ -550,6 +550,12 @@ app.post("/api/game-event", (req, res) => {
 
           // Broadcast to all clients in the room so they can see who answered
           if (io) {
+            console.log(`[player_selected] Broadcasting to room ${data.roomId}:`, {
+              playerId: data.playerId,
+              optionIndex: data.optionIndex,
+              playerName: data.playerName || room.playerNames[data.playerId] || "Player",
+              socketsInRoom: io.sockets.adapter.rooms.get(data.roomId)?.size || 0,
+            });
             io.to(data.roomId).emit("player_selected", {
               playerId: data.playerId,
               optionIndex: data.optionIndex,
@@ -2295,6 +2301,12 @@ io.on("connection", (socket) => {
     analytics.totalQuestionsAnswered++;
     analytics.dailyStats.questionsAnswered++;
 
+    console.log(`[player_selected via socket] Broadcasting to channel ${channelId}:`, {
+      playerId: user.id,
+      optionIndex,
+      playerName: room.players[user.id].name,
+      socketsInRoom: io.sockets.adapter.rooms.get(channelId)?.size || 0,
+    });
     io.to(channelId).emit("player_selected", {
       playerId: user.id,
       optionIndex,
