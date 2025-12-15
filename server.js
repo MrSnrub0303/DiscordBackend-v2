@@ -494,6 +494,21 @@ app.post("/api/game-event", (req, res) => {
             room.currentSelections = {};
           }
 
+          // Ensure player exists in scores even if not connected via socket (proxy mode)
+          if (!room.scores) room.scores = {};
+          if (room.scores[data.playerId] === undefined) {
+            room.scores[data.playerId] = 0;
+          }
+
+          // Ensure player exists in players map for proxy mode
+          if (!room.players[data.playerId]) {
+            room.players[data.playerId] = {
+              id: data.playerId,
+              name: data.playerName || "Player",
+              score: room.scores[data.playerId] || 0,
+            };
+          }
+
           const previousSelection = room.currentSelections[data.playerId];
           const isChange =
             previousSelection &&
@@ -1034,6 +1049,21 @@ app.post("/game-event", (req, res) => {
 
           if (!room.currentSelections) {
             room.currentSelections = {};
+          }
+
+          // Ensure player exists in scores even if not connected via socket (proxy mode)
+          if (!room.scores) room.scores = {};
+          if (room.scores[data.playerId] === undefined) {
+            room.scores[data.playerId] = 0;
+          }
+
+          // Ensure player exists in players map for proxy mode
+          if (!room.players[data.playerId]) {
+            room.players[data.playerId] = {
+              id: data.playerId,
+              name: data.playerName || "Player",
+              score: room.scores[data.playerId] || 0,
+            };
           }
 
           const previousSelection = room.currentSelections[data.playerId];
