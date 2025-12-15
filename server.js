@@ -489,6 +489,8 @@ app.post("/api/game-event", (req, res) => {
       case "select_option":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
+          
+          console.log(`[select_option REST] Player ${data.playerId} selected option ${data.optionIndex} in room ${data.roomId}`);
 
           if (!room.currentSelections) {
             room.currentSelections = {};
@@ -530,6 +532,8 @@ app.post("/api/game-event", (req, res) => {
           }
 
           room.currentSelections[data.playerId] = selection;
+          console.log(`[select_option REST] Stored selection for player ${data.playerId}:`, JSON.stringify(selection));
+          console.log(`[select_option REST] All currentSelections:`, JSON.stringify(room.currentSelections));
 
           if (room.roundEnded && room.lastSelections) {
             if (data.optionIndex !== undefined) {
@@ -1322,20 +1326,33 @@ app.get("/api/game-state/:roomId", (req, res) => {
           });
           return;
         } else {
-          const selectionsToSend = room.roundEnded
-            ? room.lastSelections || {}
-            : room.currentSelections || {};
+          // AUTO-END THE ROUND when time runs out (for proxy mode without socket timer)
+          console.log(`[game-state] Auto-ending round for room ${roomId}, currentSelections:`, room.currentSelections);
+          
+          // Compute scores before ending
+          computeScores(room);
+          
+          // Mark round as ended
+          room.roundEnded = true;
+          room.lastSelections = getClientFacingSelections(room);
+          room.lastCorrectAnswer = room.currentQuestion?.correctIndex;
+          room.resultShowStartTime = Date.now();
+          room.gameState = "waiting";
+          
+          console.log(`[game-state] Round ended, lastSelections:`, room.lastSelections, "scores:", room.scores);
+          
           res.json({
             success: true,
             currentQuestion: room.currentQuestion,
             timeLeft: 0,
-            showResult: room.roundEnded,
-            gameState: "active",
-            roundEnded: room.roundEnded,
+            showResult: true,
+            gameState: "waiting",
+            roundEnded: true,
             questionStartTime: room.questionStartTime,
-            selections: selectionsToSend,
+            selections: room.lastSelections || {},
             scores: room.scores || {},
             playerNames: room.playerNames || {},
+            correctIndex: room.currentQuestion?.correctIndex,
           });
           return;
         }
