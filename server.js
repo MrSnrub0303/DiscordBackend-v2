@@ -2036,15 +2036,37 @@ function computeScores(room) {
 
   const correctIndex = currentQuestion.correctIndex;
 
+  // Ensure room.scores exists
+  if (!room.scores) {
+    room.scores = {};
+  }
+
   Object.entries(currentSelections).forEach(([playerId, selection]) => {
-    const player = room.players[playerId];
-    if (!player) {
-      return;
+    // Initialize score for this player if not present
+    if (room.scores[playerId] === undefined) {
+      room.scores[playerId] = 0;
     }
 
-    if (selection.optionIndex === correctIndex) {
+    const player = room.players[playerId];
+    
+    // Determine if answer is correct based on question type
+    let isCorrect = false;
+    if (currentQuestion.isCard) {
+      isCorrect = selection.isCorrect === true;
+    } else {
+      isCorrect = selection.optionIndex === correctIndex;
+    }
+
+    if (isCorrect) {
       const points = calculatePointsFromTime(selection.timeTaken ?? MAX_TIME);
-      player.score = (player.score || 0) + points;
+      
+      // Update room.scores directly (authoritative)
+      room.scores[playerId] = (room.scores[playerId] || 0) + points;
+      
+      // Also update player object if it exists
+      if (player) {
+        player.score = room.scores[playerId];
+      }
     }
   });
 }
@@ -2197,9 +2219,15 @@ io.on("connection", (socket) => {
     if (room.timer) clearTimeout(room.timer);
     room.timer = setTimeout(() => {
       computeScores(room);
-      room.scores = Object.fromEntries(
-        Object.entries(room.players).map(([id, p]) => [id, p.score || 0]),
-      );
+      // Merge scores from players into room.scores (don't overwrite scores from proxy-mode players)
+      Object.entries(room.players).forEach(([id, p]) => {
+        const playerScore = p.score || 0;
+        const existingScore = room.scores[id] || 0;
+        // Use the higher score to avoid losing points
+        room.scores[id] = Math.max(playerScore, existingScore);
+        // Sync player object
+        p.score = room.scores[id];
+      });
       const selectionSnapshot = getClientFacingSelections(room);
       const correctIndex = room.currentQuestion?.correctIndex;
       room.lastSelections = selectionSnapshot;
