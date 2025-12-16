@@ -1059,14 +1059,9 @@ app.post("/game-event", (req, res) => {
             return;
           }
 
-          if (data.forceNew) {
-            Object.keys(room.players).forEach((playerId) => {
-              room.players[playerId].score = 0;
-            });
-            room.scores = {};
-
-            StorageService.clearCurrentScores(data.roomId);
-          }
+          // NOTE: forceNew only forces a new question, it does NOT reset scores
+          // Score reset should only happen via explicit "reset_scores" event
+          // (removed score reset from forceNew block)
 
           const randomQuestion = getRandomQuestion();
           const questionStartTime = Date.now();
