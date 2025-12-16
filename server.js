@@ -602,6 +602,12 @@ app.post("/api/game-event", (req, res) => {
           res.json({
             success: true,
             message: isChange ? "Selection changed" : "Selection recorded",
+            _debug: {
+              serverVersion: "v4-score-debug",
+              roomScores: room.scores || {},
+              playerScore: room.scores?.[data.playerId] || 0,
+              hasCurrentQuestion: !!room.currentQuestion,
+            }
           });
           return;
         }
