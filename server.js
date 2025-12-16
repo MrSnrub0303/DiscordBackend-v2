@@ -941,10 +941,17 @@ function getRandomQuestion() {
   const randomIndex = Math.floor(Math.random() * questions.length);
   const question = questions[randomIndex];
 
+  // Convert answer letter (A, B, C, D) to correctIndex (0, 1, 2, 3)
+  const answerLetter = (question.answer || "").toUpperCase().trim();
+  const correctIndex = { "A": 0, "B": 1, "C": 2, "D": 3 }[answerLetter] ?? -1;
+  
+  console.log(`[getRandomQuestion] Question: "${question.question?.substring(0, 50)}...", answer="${question.answer}", correctIndex=${correctIndex}`);
+
   return {
     question: question.question,
     options: question.options,
     answer: question.answer,
+    correctIndex: correctIndex, // Add correctIndex for server-side scoring
     id: `trivia_${randomIndex}_${Date.now()}`,
     isCard: false,
   };
