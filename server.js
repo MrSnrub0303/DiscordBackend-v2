@@ -449,16 +449,8 @@ app.post("/api/game-event", (req, res) => {
 
           room.generatingQuestion = true;
 
-          if (data.forceNew) {
-            Object.keys(room.players || {}).forEach((playerId) => {
-              if (room.players[playerId]) {
-                room.players[playerId].score = 0;
-              }
-            });
-            room.scores = {};
-
-            StorageService.clearCurrentScores(data.roomId);
-          }
+          // NOTE: forceNew only forces a new question, it does NOT reset scores
+          // Score reset should only happen via explicit "reset_scores" event
 
           const randomQuestionForSocket = getRandomQuestion();
           const questionStartTime = Date.now();
@@ -1662,16 +1654,8 @@ app.post("/api/start_question", (req, res) => {
     room.generatingQuestion = true;
     room.lastQuestionGenerated = now;
 
-    if (forceNew) {
-      Object.keys(room.players || {}).forEach((playerId) => {
-        if (room.players[playerId]) {
-          room.players[playerId].score = 0;
-        }
-      });
-      room.scores = {};
-
-      StorageService.clearCurrentScores(roomId);
-    }
+    // NOTE: forceNew only forces a new question, it does NOT reset scores
+    // Score reset should only happen via explicit "reset_scores" event
 
     const randomQuestion = getRandomQuestion();
     const questionStartTime = Date.now();
