@@ -1150,7 +1150,47 @@ app.post("/game-event", (req, res) => {
             selection.optionIndex = data.optionIndex;
           }
 
+          // Check if this is a NEW correct answer (not already scored)
+          const previouslyScored = room.currentSelections[data.playerId]?.scored;
+          
           room.currentSelections[data.playerId] = selection;
+          
+          console.log(`[/api/game-event select_option] Player ${data.playerId} selected option ${data.optionIndex} in room ${data.roomId}`);
+          console.log(`[/api/game-event select_option] Score check: previouslyScored=${previouslyScored}, hasQuestion=${!!room.currentQuestion}, correctIndex=${room.currentQuestion?.correctIndex}`);
+
+          // IMMEDIATE SCORE COMPUTATION for correct answers (proxy mode real-time sync)
+          if (!previouslyScored && room.currentQuestion) {
+            let isCorrect = false;
+            
+            if (data.cardAnswer !== undefined) {
+              // Card mode: isCorrect is sent by client
+              isCorrect = data.isCorrect === true;
+              console.log(`[/api/game-event select_option] Card mode: data.isCorrect=${data.isCorrect}, computed isCorrect=${isCorrect}`);
+            } else if (data.optionIndex !== undefined) {
+              // Trivia mode: check against correctIndex
+              isCorrect = data.optionIndex === room.currentQuestion.correctIndex;
+              console.log(`[/api/game-event select_option] Trivia mode: optionIndex=${data.optionIndex}, correctIndex=${room.currentQuestion.correctIndex}, isCorrect=${isCorrect}`);
+            }
+            
+            if (isCorrect) {
+              const points = calculatePointsFromTime(data.timeTaken ?? MAX_TIME);
+              const oldScore = room.scores[data.playerId] || 0;
+              room.scores[data.playerId] = oldScore + points;
+              room.currentSelections[data.playerId].scored = true; // Mark as scored to prevent double-scoring
+              
+              // Update player object if exists
+              if (room.players[data.playerId]) {
+                room.players[data.playerId].score = room.scores[data.playerId];
+              }
+              
+              console.log(`[/api/game-event select_option] Awarded ${points} points to player ${data.playerId}. Old: ${oldScore}, New: ${room.scores[data.playerId]}`);
+              console.log(`[/api/game-event select_option] Current room.scores:`, JSON.stringify(room.scores));
+            } else {
+              console.log(`[/api/game-event select_option] Answer was incorrect, no points awarded`);
+            }
+          } else {
+            console.log(`[/api/game-event select_option] Skipped scoring: previouslyScored=${previouslyScored}, hasQuestion=${!!room.currentQuestion}`);
+          }
 
           if (room.roundEnded && room.lastSelections) {
             if (data.optionIndex !== undefined) {
