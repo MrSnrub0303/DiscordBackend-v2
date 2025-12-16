@@ -539,20 +539,25 @@ app.post("/api/game-event", (req, res) => {
           console.log(`[select_option REST] All currentSelections:`, JSON.stringify(room.currentSelections));
 
           // IMMEDIATE SCORE COMPUTATION for correct answers (proxy mode real-time sync)
+          console.log(`[select_option REST] Score computation check: previouslyScored=${previouslyScored}, hasQuestion=${!!room.currentQuestion}, cardAnswer=${data.cardAnswer}, optionIndex=${data.optionIndex}, isCorrect=${data.isCorrect}`);
+          
           if (!previouslyScored && room.currentQuestion) {
             let isCorrect = false;
             
             if (data.cardAnswer !== undefined) {
               // Card mode: isCorrect is sent by client
               isCorrect = data.isCorrect === true;
+              console.log(`[select_option REST] Card mode: data.isCorrect=${data.isCorrect}, computed isCorrect=${isCorrect}`);
             } else if (data.optionIndex !== undefined) {
               // Trivia mode: check against correctIndex
               isCorrect = data.optionIndex === room.currentQuestion.correctIndex;
+              console.log(`[select_option REST] Trivia mode: optionIndex=${data.optionIndex}, correctIndex=${room.currentQuestion.correctIndex}, isCorrect=${isCorrect}`);
             }
             
             if (isCorrect) {
               const points = calculatePointsFromTime(data.timeTaken ?? MAX_TIME);
-              room.scores[data.playerId] = (room.scores[data.playerId] || 0) + points;
+              const oldScore = room.scores[data.playerId] || 0;
+              room.scores[data.playerId] = oldScore + points;
               room.currentSelections[data.playerId].scored = true; // Mark as scored to prevent double-scoring
               
               // Update player object if exists
@@ -560,8 +565,13 @@ app.post("/api/game-event", (req, res) => {
                 room.players[data.playerId].score = room.scores[data.playerId];
               }
               
-              console.log(`[select_option REST] Awarded ${points} points to player ${data.playerId}. New score: ${room.scores[data.playerId]}`);
+              console.log(`[select_option REST] Awarded ${points} points to player ${data.playerId}. Old: ${oldScore}, New: ${room.scores[data.playerId]}`);
+              console.log(`[select_option REST] Current room.scores:`, JSON.stringify(room.scores));
+            } else {
+              console.log(`[select_option REST] Answer was incorrect, no points awarded`);
             }
+          } else {
+            console.log(`[select_option REST] Skipped scoring: previouslyScored=${previouslyScored}, hasQuestion=${!!room.currentQuestion}`);
           }
 
           if (room.roundEnded && room.lastSelections) {
@@ -1392,6 +1402,10 @@ app.get("/api/game-state/:roomId", (req, res) => {
         : room.currentSelections || {};
 
       const showResultValue = room.roundEnded;
+      
+      // Debug: Log what scores are being returned
+      console.log(`[game-state] Returning scores for room ${roomId}:`, JSON.stringify(room.scores || {}));
+      
       res.json({
         success: true,
         currentQuestion: room.currentQuestion,
