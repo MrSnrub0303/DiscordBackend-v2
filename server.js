@@ -1390,8 +1390,8 @@ app.get("/api/game-state/:roomId", (req, res) => {
 
       const showResultValue = room.roundEnded;
       
-      // Debug: Log what scores are being returned
-      console.log(`[game-state] Returning scores for room ${roomId}:`, JSON.stringify(room.scores || {}));
+      // Debug: Log what scores are being returned (version v3 - score fix deployed)
+      console.log(`[game-state v3] Returning scores for room ${roomId}:`, JSON.stringify(room.scores || {}));
       
       res.json({
         success: true,
@@ -1404,6 +1404,7 @@ app.get("/api/game-state/:roomId", (req, res) => {
         selections: selectionsToSend,
         scores: room.scores || {},
         playerNames: room.playerNames || {},
+        _serverVersion: "v3-score-fix", // Debug marker
       });
     } else {
       res.json({
