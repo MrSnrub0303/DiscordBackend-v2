@@ -398,6 +398,17 @@ app.post("/api/game-event", (req, res) => {
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
 
+          // Reset scores if requested (fresh game session)
+          if (data.resetScores) {
+            console.log(`[/api/game-event start_question] Resetting scores for room ${data.roomId}`);
+            room.scores = {};
+            Object.keys(room.players || {}).forEach((playerId) => {
+              if (room.players[playerId]) {
+                room.players[playerId].score = 0;
+              }
+            });
+          }
+
           if (!data.forceNew && room.currentQuestion) {
             const now = Date.now();
             const questionStartTime = room.questionStartTime || now;
@@ -969,6 +980,17 @@ app.post("/game-event", (req, res) => {
       case "start_question":
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
+
+          // Reset scores if requested (fresh game session)
+          if (data.resetScores) {
+            console.log(`[/game-event start_question] Resetting scores for room ${data.roomId}`);
+            room.scores = {};
+            Object.keys(room.players || {}).forEach((playerId) => {
+              if (room.players[playerId]) {
+                room.players[playerId].score = 0;
+              }
+            });
+          }
 
           if (!data.forceNew && room.currentQuestion) {
             const now = Date.now();
@@ -1556,7 +1578,7 @@ app.get("/game-state/:roomId", (req, res) => {
 });
 
 app.post("/api/start_question", (req, res) => {
-  const { roomId, forceNew, playerId } = req.body;
+  const { roomId, forceNew, playerId, resetScores } = req.body;
 
   if (!roomId) {
     return res.status(400).json({ success: false, error: "Missing roomId" });
@@ -1568,6 +1590,17 @@ app.post("/api/start_question", (req, res) => {
     }
 
     const room = rooms[roomId];
+
+    // Reset scores if requested (fresh game session)
+    if (resetScores) {
+      console.log(`[/api/start_question] Resetting scores for room ${roomId}`);
+      room.scores = {};
+      Object.keys(room.players || {}).forEach((pid) => {
+        if (room.players[pid]) {
+          room.players[pid].score = 0;
+        }
+      });
+    }
 
     if (!forceNew && room.currentQuestion && !room.roundEnded) {
       const now = Date.now();
@@ -1746,7 +1779,7 @@ app.post("/api/start_question", (req, res) => {
 });
 
 app.post("/start_question", (req, res) => {
-  const { roomId, forceNew } = req.body;
+  const { roomId, forceNew, resetScores } = req.body;
 
   if (!roomId) {
     return res.status(400).json({ success: false, error: "Missing roomId" });
@@ -1758,6 +1791,17 @@ app.post("/start_question", (req, res) => {
     }
 
     const room = rooms[roomId];
+
+    // Reset scores if requested (fresh game session)
+    if (resetScores) {
+      console.log(`[/start_question] Resetting scores for room ${roomId}`);
+      room.scores = {};
+      Object.keys(room.players || {}).forEach((pid) => {
+        if (room.players[pid]) {
+          room.players[pid].score = 0;
+        }
+      });
+    }
 
     if (!forceNew && room.currentQuestion && !room.roundEnded) {
       const now = Date.now();
