@@ -1452,13 +1452,21 @@ app.post("/api/player-join", (req, res) => {
     if (sessionCheck.timedOut) {
       // Player was away for more than 1 minute - reset their score
       console.log(`[player-join] Player ${playerId} was away for ${Math.round(sessionCheck.timeSinceLastSeen / 1000)}s, resetting score`);
-      if (room.scores[playerId] !== undefined) {
-        room.scores[playerId] = 0;
-      }
+      // Always reset score to 0 (initialize if not exists)
+      room.scores[playerId] = 0;
       if (room.players[playerId]) {
         room.players[playerId].score = 0;
       }
       scoreReset = true;
+      
+      // Broadcast updated scores to all clients in the room
+      if (io) {
+        io.to(roomId).emit("room_state", {
+          scores: room.scores || {},
+          playerNames: room.playerNames || {},
+          hostPlayerId: room.hostPlayerId,
+        });
+      }
     }
     
     // Update last seen timestamp
