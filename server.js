@@ -66,8 +66,13 @@ const analytics = {
 };
 
 const HOST_INACTIVE_TIMEOUT = 1000 * 60 * 2; // 2 minutes
+const PLAYER_SESSION_TIMEOUT = 1000 * 60 * 1; // 1 minute - after this, player's score resets on rejoin
 
 const rooms = {};
+
+// Track when players were last seen in each room (for session timeout)
+// Structure: { roomId: { playerId: timestamp } }
+const playerLastSeen = {};
 
 const buildInitialRoomState = () => ({
   players: {},
@@ -105,7 +110,41 @@ function ensureRoom(roomId) {
     rooms[roomId].hostLastActiveAt = null;
   }
 
+  // Initialize player tracking for this room
+  if (!playerLastSeen[roomId]) {
+    playerLastSeen[roomId] = {};
+  }
+
   return rooms[roomId];
+}
+
+// Update player's last seen timestamp
+function updatePlayerLastSeen(roomId, playerId) {
+  if (!roomId || !playerId) return;
+  if (!playerLastSeen[roomId]) {
+    playerLastSeen[roomId] = {};
+  }
+  playerLastSeen[roomId][playerId] = Date.now();
+}
+
+// Check if player has been away too long and should have score reset
+function checkPlayerSessionTimeout(roomId, playerId) {
+  if (!roomId || !playerId) return { timedOut: false };
+  
+  const lastSeen = playerLastSeen[roomId]?.[playerId];
+  if (!lastSeen) {
+    // First time joining - no timeout
+    return { timedOut: false, isNewPlayer: true };
+  }
+  
+  const timeSinceLastSeen = Date.now() - lastSeen;
+  const timedOut = timeSinceLastSeen > PLAYER_SESSION_TIMEOUT;
+  
+  return { 
+    timedOut, 
+    timeSinceLastSeen,
+    isNewPlayer: false 
+  };
 }
 
 function assertHostControl(room, playerId, options = {}) {
@@ -407,6 +446,17 @@ app.post("/api/game-event", (req, res) => {
                 room.players[playerId].score = 0;
               }
             });
+            
+            // If resetScores is true and round has ended or question is stale, clear it
+            // This ensures clicking "Start" with reset doesn't resume an old finished round
+            if (room.roundEnded || (room.questionStartTime && Date.now() - room.questionStartTime > (MAX_TIME + 30) * 1000)) {
+              console.log(`[/api/game-event start_question] Clearing stale question for fresh start`);
+              room.currentQuestion = null;
+              room.roundEnded = false;
+              room.currentSelections = {};
+              room.lastSelections = {};
+              room.questionStartTime = null;
+            }
           }
 
           if (!data.forceNew && room.currentQuestion) {
@@ -493,7 +543,8 @@ app.post("/api/game-event", (req, res) => {
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
           
-          console.log(`[select_option REST] Player ${data.playerId} selected option ${data.optionIndex} in room ${data.roomId}`);
+          // Update player's last seen timestamp
+          updatePlayerLastSeen(data.roomId, data.playerId);
 
           if (!room.currentSelections) {
             room.currentSelections = {};
@@ -990,6 +1041,15 @@ app.post("/game-event", (req, res) => {
                 room.players[playerId].score = 0;
               }
             });
+            
+            // If resetScores is true and round has ended or question is stale, clear it
+            if (room.roundEnded || (room.questionStartTime && Date.now() - room.questionStartTime > (MAX_TIME + 30) * 1000)) {
+              room.currentQuestion = null;
+              room.roundEnded = false;
+              room.currentSelections = {};
+              room.lastSelections = {};
+              room.questionStartTime = null;
+            }
           }
 
           if (!data.forceNew && room.currentQuestion) {
@@ -1374,6 +1434,65 @@ app.post("/game-event", (req, res) => {
   }
 });
 
+// Player join endpoint - handles session timeout and score reset
+app.post("/api/player-join", (req, res) => {
+  const { roomId, playerId, playerName } = req.body;
+  
+  if (!roomId || !playerId) {
+    return res.status(400).json({ success: false, error: "Missing roomId or playerId" });
+  }
+  
+  try {
+    const room = ensureRoom(roomId);
+    
+    // Check if player has been away too long
+    const sessionCheck = checkPlayerSessionTimeout(roomId, playerId);
+    
+    let scoreReset = false;
+    if (sessionCheck.timedOut) {
+      // Player was away for more than 1 minute - reset their score
+      console.log(`[player-join] Player ${playerId} was away for ${Math.round(sessionCheck.timeSinceLastSeen / 1000)}s, resetting score`);
+      if (room.scores[playerId] !== undefined) {
+        room.scores[playerId] = 0;
+      }
+      if (room.players[playerId]) {
+        room.players[playerId].score = 0;
+      }
+      scoreReset = true;
+    }
+    
+    // Update last seen timestamp
+    updatePlayerLastSeen(roomId, playerId);
+    
+    // Update player name if provided
+    if (playerName) {
+      room.playerNames[playerId] = playerName;
+    }
+    
+    // Return current game state info
+    const hasActiveQuestion = room.currentQuestion && !room.roundEnded;
+    let timeLeft = MAX_TIME;
+    if (room.questionStartTime && hasActiveQuestion) {
+      const elapsedSeconds = Math.floor((Date.now() - room.questionStartTime) / 1000);
+      timeLeft = Math.max(0, MAX_TIME - elapsedSeconds);
+    }
+    
+    res.json({
+      success: true,
+      scoreReset,
+      isNewPlayer: sessionCheck.isNewPlayer,
+      hasActiveQuestion,
+      timeLeft,
+      hostPlayerId: room.hostPlayerId,
+      scores: room.scores || {},
+      playerScore: room.scores[playerId] || 0,
+    });
+  } catch (error) {
+    console.error("[player-join] Error:", error);
+    res.status(500).json({ success: false, error: "Failed to process player join" });
+  }
+});
+
 app.get("/api/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
   console.log(`[game-state] Request for room ${roomId}`);
@@ -1600,6 +1719,15 @@ app.post("/api/start_question", (req, res) => {
           room.players[pid].score = 0;
         }
       });
+      
+      // If resetScores is true and round has ended or question is stale, clear it
+      if (room.roundEnded || (room.questionStartTime && Date.now() - room.questionStartTime > (MAX_TIME + 30) * 1000)) {
+        room.currentQuestion = null;
+        room.roundEnded = false;
+        room.currentSelections = {};
+        room.lastSelections = {};
+        room.questionStartTime = null;
+      }
     }
 
     if (!forceNew && room.currentQuestion && !room.roundEnded) {
@@ -1801,6 +1929,15 @@ app.post("/start_question", (req, res) => {
           room.players[pid].score = 0;
         }
       });
+      
+      // If resetScores is true and round has ended or question is stale, clear it
+      if (room.roundEnded || (room.questionStartTime && Date.now() - room.questionStartTime > (MAX_TIME + 30) * 1000)) {
+        room.currentQuestion = null;
+        room.roundEnded = false;
+        room.currentSelections = {};
+        room.lastSelections = {};
+        room.questionStartTime = null;
+      }
     }
 
     if (!forceNew && room.currentQuestion && !room.roundEnded) {
