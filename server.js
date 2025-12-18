@@ -531,7 +531,18 @@ app.post("/api/game-event", (req, res) => {
             return;
           }
 
-          if (data.forceNew) {
+          // If forceNew is false and we reach here, there's no active game to sync to
+          // Return empty success - don't generate a new question
+          if (!data.forceNew) {
+            console.log(`[/api/game-event start_question] No active game to sync, returning empty (forceNew=false)`);
+            return res.json({
+              success: true,
+              question: null,
+              hostPlayerId: room.hostPlayerId,
+              scores: room.scores || {},
+              playerNames: room.playerNames || {},
+              noActiveGame: true,
+            });
           }
 
           if (room.generatingQuestion) {
@@ -1187,7 +1198,22 @@ app.post("/game-event", (req, res) => {
             return;
           }
 
-          if (data.forceNew) {
+          // If forceNew is false and we reach here, there's no active game to sync to
+          // Return empty success - don't generate a new question
+          if (!data.forceNew) {
+            console.log(`[/game-event] No active game to sync, returning empty (forceNew=false)`);
+            res.json({
+              success: true,
+              action: "no_active_game",
+              data: {
+                question: null,
+                hostPlayerId: room.hostPlayerId,
+                scores: room.scores || {},
+                playerNames: room.playerNames || {},
+                noActiveGame: true,
+              },
+            });
+            return;
           }
 
           if (room.generatingQuestion) {
@@ -1937,6 +1963,20 @@ app.post("/api/start_question", (req, res) => {
       }
     }
 
+    // If forceNew is false and we reach here, there's no active game to sync to
+    // Return empty success - don't generate a new question
+    if (!forceNew) {
+      console.log(`[/api/start_question] No active game to sync, returning empty (forceNew=false)`);
+      return res.json({
+        success: true,
+        question: null,
+        hostPlayerId: room.hostPlayerId,
+        scores: room.scores || {},
+        playerNames: room.playerNames || {},
+        noActiveGame: true,
+      });
+    }
+
     const hostCheck = assertHostControl(room, playerId, {
       allowClaim: true,
       allowTakeover: true,
@@ -2197,7 +2237,18 @@ app.post("/start_question", (req, res) => {
       }
     }
 
-    if (forceNew) {
+    // If forceNew is false and we reach here, there's no active game to sync to
+    // Return empty success - don't generate a new question
+    if (!forceNew) {
+      console.log(`[/start_question] No active game to sync, returning empty (forceNew=false)`);
+      return res.json({
+        success: true,
+        question: null,
+        hostPlayerId: room.hostPlayerId,
+        scores: room.scores || {},
+        playerNames: room.playerNames || {},
+        noActiveGame: true,
+      });
     }
 
     if (room.generatingQuestion) {
