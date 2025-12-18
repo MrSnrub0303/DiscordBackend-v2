@@ -439,14 +439,14 @@ app.post("/api/game-event", (req, res) => {
 
           // FIRST: Check if there's already an active question in progress
           // If so, just return it - don't reset scores or start a new question
-          if (!data.forceNew && room.currentQuestion && !room.roundEnded) {
+          if (!data.forceNew && room.currentQuestion) {
             const now = Date.now();
             const questionStartTime = room.questionStartTime || now;
             const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
             const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
 
-            // If there's still time on the question, return it without resetting anything
-            if (remainingTime > 0) {
+            // Case 1: Question is still active (time remaining)
+            if (remainingTime > 0 && !room.roundEnded) {
               console.log(`[/api/game-event start_question] Active question in progress, syncing player ${data.playerId} to current game (${remainingTime}s remaining)`);
               return res.json({
                 success: true,
@@ -461,6 +461,30 @@ app.post("/api/game-event", (req, res) => {
                 playerNames: room.playerNames || {},
                 synced: true,
               });
+            }
+            
+            // Case 2: Round has ended (showing results) - sync to results screen
+            // Only the host can start a new question from results screen
+            if (room.roundEnded) {
+              const isHost = room.hostPlayerId === data.playerId;
+              if (!isHost && room.hostPlayerId) {
+                // Non-host player - just sync them to the results screen
+                console.log(`[/api/game-event start_question] Round ended, syncing non-host player ${data.playerId} to results screen`);
+                return res.json({
+                  success: true,
+                  question: room.currentQuestion,
+                  timeLeft: 0,
+                  startTime: questionStartTime,
+                  showResult: true,
+                  selections: room.lastSelections || room.currentSelections || {},
+                  roundEnded: true,
+                  hostPlayerId: room.hostPlayerId,
+                  scores: room.scores || {},
+                  playerNames: room.playerNames || {},
+                  synced: true,
+                });
+              }
+              // Host can proceed to start a new question
             }
           }
 
@@ -1064,14 +1088,14 @@ app.post("/game-event", (req, res) => {
 
           // FIRST: Check if there's already an active question in progress
           // If so, just return it - don't reset scores or start a new question
-          if (!data.forceNew && room.currentQuestion && !room.roundEnded) {
+          if (!data.forceNew && room.currentQuestion) {
             const now = Date.now();
             const questionStartTime = room.questionStartTime || now;
             const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
             const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
 
-            // If there's still time on the question, return it without resetting anything
-            if (remainingTime > 0) {
+            // Case 1: Question is still active (time remaining)
+            if (remainingTime > 0 && !room.roundEnded) {
               console.log(`[/game-event start_question] Active question in progress, syncing player ${data.playerId} to current game (${remainingTime}s remaining)`);
               return res.json({
                 success: true,
@@ -1089,6 +1113,33 @@ app.post("/game-event", (req, res) => {
                   synced: true,
                 },
               });
+            }
+            
+            // Case 2: Round has ended (showing results) - sync to results screen
+            // Only the host can start a new question from results screen
+            if (room.roundEnded) {
+              const isHost = room.hostPlayerId === data.playerId;
+              if (!isHost && room.hostPlayerId) {
+                // Non-host player - just sync them to the results screen
+                console.log(`[/game-event start_question] Round ended, syncing non-host player ${data.playerId} to results screen`);
+                return res.json({
+                  success: true,
+                  action: "question_started",
+                  data: {
+                    question: room.currentQuestion,
+                    timeLeft: 0,
+                    startTime: questionStartTime,
+                    showResult: true,
+                    selections: room.lastSelections || room.currentSelections || {},
+                    roundEnded: true,
+                    hostPlayerId: room.hostPlayerId,
+                    scores: room.scores || {},
+                    playerNames: room.playerNames || {},
+                    synced: true,
+                  },
+                });
+              }
+              // Host can proceed to start a new question
             }
           }
 
@@ -1784,14 +1835,14 @@ app.post("/api/start_question", (req, res) => {
     // FIRST: Check if there's already an active question in progress
     // If so, just return it - don't reset scores or start a new question
     // This allows players to rejoin without disrupting the game
-    if (!forceNew && room.currentQuestion && !room.roundEnded) {
+    if (!forceNew && room.currentQuestion) {
       const now = Date.now();
       const questionStartTime = room.questionStartTime || now;
       const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
       const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
 
-      // If there's still time on the question, return it without resetting anything
-      if (remainingTime > 0) {
+      // Case 1: Question is still active (time remaining)
+      if (remainingTime > 0 && !room.roundEnded) {
         console.log(`[/api/start_question] Active question in progress, syncing player ${playerId} to current game (${remainingTime}s remaining)`);
         return res.json({
           success: true,
@@ -1802,8 +1853,31 @@ app.post("/api/start_question", (req, res) => {
           hostPlayerId: room.hostPlayerId,
           scores: room.scores || {},
           playerNames: room.playerNames || {},
-          synced: true, // Flag to tell client this is a sync, not a new game
+          synced: true,
         });
+      }
+      
+      // Case 2: Round has ended (showing results) - sync to results screen
+      // Only the host can start a new question from results screen
+      if (room.roundEnded) {
+        const isHost = room.hostPlayerId === playerId;
+        if (!isHost && room.hostPlayerId) {
+          // Non-host player - just sync them to the results screen
+          console.log(`[/api/start_question] Round ended, syncing non-host player ${playerId} to results screen`);
+          return res.json({
+            success: true,
+            question: room.currentQuestion,
+            timeLeft: 0,
+            startTime: questionStartTime,
+            showResult: true,
+            hostPlayerId: room.hostPlayerId,
+            scores: room.scores || {},
+            playerNames: room.playerNames || {},
+            selections: room.lastSelections || room.currentSelections || {},
+            synced: true,
+          });
+        }
+        // Host can proceed to start a new question
       }
     }
 
@@ -2021,14 +2095,14 @@ app.post("/start_question", (req, res) => {
     // FIRST: Check if there's already an active question in progress
     // If so, just return it - don't reset scores or start a new question
     // This allows players to rejoin without disrupting the game
-    if (!forceNew && room.currentQuestion && !room.roundEnded) {
+    if (!forceNew && room.currentQuestion) {
       const now = Date.now();
       const questionStartTime = room.questionStartTime || now;
       const elapsedSeconds = Math.floor((now - questionStartTime) / 1000);
       const remainingTime = Math.max(0, MAX_TIME - elapsedSeconds);
 
-      // If there's still time on the question, return it without resetting anything
-      if (remainingTime > 0) {
+      // Case 1: Question is still active (time remaining)
+      if (remainingTime > 0 && !room.roundEnded) {
         console.log(`[/start_question] Active question in progress, syncing player ${playerId} to current game (${remainingTime}s remaining)`);
         return res.json({
           success: true,
@@ -2039,8 +2113,31 @@ app.post("/start_question", (req, res) => {
           hostPlayerId: room.hostPlayerId,
           scores: room.scores || {},
           playerNames: room.playerNames || {},
-          synced: true, // Flag to tell client this is a sync, not a new game
+          synced: true,
         });
+      }
+      
+      // Case 2: Round has ended (showing results) - sync to results screen
+      // Only the host can start a new question from results screen
+      if (room.roundEnded) {
+        const isHost = room.hostPlayerId === playerId;
+        if (!isHost && room.hostPlayerId) {
+          // Non-host player - just sync them to the results screen
+          console.log(`[/start_question] Round ended, syncing non-host player ${playerId} to results screen`);
+          return res.json({
+            success: true,
+            question: room.currentQuestion,
+            timeLeft: 0,
+            startTime: questionStartTime,
+            showResult: true,
+            hostPlayerId: room.hostPlayerId,
+            scores: room.scores || {},
+            playerNames: room.playerNames || {},
+            selections: room.lastSelections || room.currentSelections || {},
+            synced: true,
+          });
+        }
+        // Host can proceed to start a new question
       }
     }
 
