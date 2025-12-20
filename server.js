@@ -641,15 +641,44 @@ app.post("/api/game-event", (req, res) => {
 
           // Check if this is a NEW correct answer (not already scored)
           const previouslyScored = room.currentSelections[data.playerId]?.scored;
+          const previousPoints = room.currentSelections[data.playerId]?.pointsAwarded || 0;
           
           room.currentSelections[data.playerId] = selection;
           console.log(`[select_option REST] Stored selection for player ${data.playerId}:`, JSON.stringify(selection));
           console.log(`[select_option REST] All currentSelections:`, JSON.stringify(room.currentSelections));
 
           // IMMEDIATE SCORE COMPUTATION for correct answers (proxy mode real-time sync)
-          console.log(`[select_option REST] Score computation check: previouslyScored=${previouslyScored}, hasQuestion=${!!room.currentQuestion}, cardAnswer=${data.cardAnswer}, optionIndex=${data.optionIndex}, isCorrect=${data.isCorrect}`);
+          console.log(`[select_option REST] Score computation check: previouslyScored=${previouslyScored}, previousPoints=${previousPoints}, hasQuestion=${!!room.currentQuestion}, cardAnswer=${data.cardAnswer}, optionIndex=${data.optionIndex}, isCorrect=${data.isCorrect}`);
           
-          if (!previouslyScored && room.currentQuestion) {
+          // If previously scored correctly but now changing answer, check if we need to revoke points
+          if (previouslyScored && previousPoints > 0 && room.currentQuestion) {
+            // Check if new answer is wrong - if so, revoke the points
+            let newAnswerIsCorrect = false;
+            if (data.cardAnswer !== undefined) {
+              newAnswerIsCorrect = data.isCorrect === true;
+            } else if (data.optionIndex !== undefined) {
+              newAnswerIsCorrect = data.optionIndex === room.currentQuestion.correctIndex;
+            }
+            
+            if (!newAnswerIsCorrect) {
+              // Revoke the previously awarded points
+              const oldScore = room.scores[data.playerId] || 0;
+              room.scores[data.playerId] = Math.max(0, oldScore - previousPoints);
+              room.currentSelections[data.playerId].scored = false;
+              room.currentSelections[data.playerId].pointsAwarded = 0;
+              
+              if (room.players[data.playerId]) {
+                room.players[data.playerId].score = room.scores[data.playerId];
+              }
+              
+              console.log(`[select_option REST] REVOKED ${previousPoints} points from player ${data.playerId}. Old: ${oldScore}, New: ${room.scores[data.playerId]} (changed to wrong answer)`);
+            } else {
+              // Still correct, keep the scored flag and points
+              room.currentSelections[data.playerId].scored = true;
+              room.currentSelections[data.playerId].pointsAwarded = previousPoints;
+              console.log(`[select_option REST] Player changed to different correct answer, keeping ${previousPoints} points`);
+            }
+          } else if (!previouslyScored && room.currentQuestion) {
             let isCorrect = false;
             
             if (data.cardAnswer !== undefined) {
@@ -667,6 +696,7 @@ app.post("/api/game-event", (req, res) => {
               const oldScore = room.scores[data.playerId] || 0;
               room.scores[data.playerId] = oldScore + points;
               room.currentSelections[data.playerId].scored = true; // Mark as scored to prevent double-scoring
+              room.currentSelections[data.playerId].pointsAwarded = points; // Track points for potential revocation
               
               // Update player object if exists
               if (room.players[data.playerId]) {
@@ -1348,14 +1378,43 @@ app.post("/game-event", (req, res) => {
 
           // Check if this is a NEW correct answer (not already scored)
           const previouslyScored = room.currentSelections[data.playerId]?.scored;
+          const previousPoints = room.currentSelections[data.playerId]?.pointsAwarded || 0;
           
           room.currentSelections[data.playerId] = selection;
           
           console.log(`[/api/game-event select_option] Player ${data.playerId} selected option ${data.optionIndex} in room ${data.roomId}`);
-          console.log(`[/api/game-event select_option] Score check: previouslyScored=${previouslyScored}, hasQuestion=${!!room.currentQuestion}, correctIndex=${room.currentQuestion?.correctIndex}`);
+          console.log(`[/api/game-event select_option] Score check: previouslyScored=${previouslyScored}, previousPoints=${previousPoints}, hasQuestion=${!!room.currentQuestion}, correctIndex=${room.currentQuestion?.correctIndex}`);
 
           // IMMEDIATE SCORE COMPUTATION for correct answers (proxy mode real-time sync)
-          if (!previouslyScored && room.currentQuestion) {
+          // If previously scored correctly but now changing answer, check if we need to revoke points
+          if (previouslyScored && previousPoints > 0 && room.currentQuestion) {
+            // Check if new answer is wrong - if so, revoke the points
+            let newAnswerIsCorrect = false;
+            if (data.cardAnswer !== undefined) {
+              newAnswerIsCorrect = data.isCorrect === true;
+            } else if (data.optionIndex !== undefined) {
+              newAnswerIsCorrect = data.optionIndex === room.currentQuestion.correctIndex;
+            }
+            
+            if (!newAnswerIsCorrect) {
+              // Revoke the previously awarded points
+              const oldScore = room.scores[data.playerId] || 0;
+              room.scores[data.playerId] = Math.max(0, oldScore - previousPoints);
+              room.currentSelections[data.playerId].scored = false;
+              room.currentSelections[data.playerId].pointsAwarded = 0;
+              
+              if (room.players[data.playerId]) {
+                room.players[data.playerId].score = room.scores[data.playerId];
+              }
+              
+              console.log(`[/api/game-event select_option] REVOKED ${previousPoints} points from player ${data.playerId}. Old: ${oldScore}, New: ${room.scores[data.playerId]} (changed to wrong answer)`);
+            } else {
+              // Still correct, keep the scored flag and points
+              room.currentSelections[data.playerId].scored = true;
+              room.currentSelections[data.playerId].pointsAwarded = previousPoints;
+              console.log(`[/api/game-event select_option] Player changed to different correct answer, keeping ${previousPoints} points`);
+            }
+          } else if (!previouslyScored && room.currentQuestion) {
             let isCorrect = false;
             
             if (data.cardAnswer !== undefined) {
@@ -1373,6 +1432,7 @@ app.post("/game-event", (req, res) => {
               const oldScore = room.scores[data.playerId] || 0;
               room.scores[data.playerId] = oldScore + points;
               room.currentSelections[data.playerId].scored = true; // Mark as scored to prevent double-scoring
+              room.currentSelections[data.playerId].pointsAwarded = points; // Track points for potential revocation
               
               // Update player object if exists
               if (room.players[data.playerId]) {
