@@ -1617,9 +1617,15 @@ app.post("/api/player-join", (req, res) => {
 
 app.get("/api/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
-  console.log(`[game-state] Request for room ${roomId}`);
+  const { playerId } = req.query; // Optional player ID for tracking
+  console.log(`[game-state] Request for room ${roomId}${playerId ? `, player ${playerId}` : ''}`);
 
   try {
+    // Update player's last seen if playerId provided
+    if (playerId && roomId) {
+      updatePlayerLastSeen(roomId, playerId);
+    }
+
     if (roomId && !rooms[roomId]) {
       rooms[roomId] = buildInitialRoomState();
     }
