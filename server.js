@@ -3053,8 +3053,8 @@ async function fetchPlayerWins(playerId) {
   return qualifyingWins;
 }
 
-// GET /api/events/leaderboard
-app.get("/api/events/leaderboard", async (req, res) => {
+// GET /events/leaderboard
+app.get("/events/leaderboard", async (req, res) => {
   try {
     const data = await loadEventsData();
     const sorted = [...data.players].sort((a, b) => b.wins - a.wins);
@@ -3065,9 +3065,9 @@ app.get("/api/events/leaderboard", async (req, res) => {
   }
 });
 
-// POST /api/events/register  { username: "STONED_TARXAN" }
+// POST /events/register  { username: "STONED_TARXAN" }
 // Server looks up the player, fetches wins, and stores the result.
-app.post("/api/events/register", async (req, res) => {
+app.post("/events/register", async (req, res) => {
   const { username } = req.body || {};
   if (!username || !username.trim()) {
     return res.status(400).json({ success: false, error: "Username is required" });
@@ -3127,8 +3127,8 @@ app.post("/api/events/register", async (req, res) => {
   }
 });
 
-// POST /api/events/refresh  { playerId: "15762644" } — re-fetches wins for one player
-app.post("/api/events/refresh", async (req, res) => {
+// POST /events/refresh  { playerId: "15762644" } — re-fetches wins for one player
+app.post("/events/refresh", async (req, res) => {
   const { playerId } = req.body || {};
   if (!playerId) {
     return res.status(400).json({ success: false, error: "playerId is required" });
