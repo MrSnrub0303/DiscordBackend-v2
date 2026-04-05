@@ -3044,44 +3044,21 @@ app.get("/api/events/leaderboard", async (req, res) => {
   }
 });
 
-// POST /api/events/register  { username: "STONED_TARXAN" }
+// POST /api/events/register  { playerId, name, wins }
+// The client computes wins directly from the AoE3 API and sends the result here for storage.
 app.post("/api/events/register", async (req, res) => {
-  const { username } = req.body || {};
-  if (!username || !username.trim()) {
-    return res.status(400).json({ success: false, error: "Username is required" });
+  const { playerId, name, wins } = req.body || {};
+  if (!playerId || !name) {
+    return res.status(400).json({ success: false, error: "playerId and name are required" });
   }
 
-  const name = username.trim();
-
   try {
-    // Look up player by name
-    const lookupUrl = `${AOE3_API_BASE}/players?name=like.*${encodeURIComponent(name)}*&limit=1`;
-    const lookupResp = await fetch(lookupUrl, { headers: { "Accept": "application/json" } });
-    if (!lookupResp.ok) throw new Error(`Player lookup failed: ${lookupResp.status}`);
-    const players = await lookupResp.json();
-
-    if (!Array.isArray(players) || players.length === 0) {
-      return res.status(404).json({ success: false, error: `Player "${name}" not found` });
-    }
-
-    const player = players[0];
-    const playerId = player.gameId;
-    const playerName = player.name ?? name;
-
-    if (!playerId) {
-      return res.status(404).json({ success: false, error: "Could not determine player ID from API response" });
-    }
-
-    // Fetch their qualifying win count
-    const wins = await fetchPlayerWins(playerId);
-
-    // Load existing data and upsert this player
     const data = await loadEventsData();
     const existing = data.players.findIndex(
       (p) => String(p.playerId) === String(playerId)
     );
 
-    const entry = { playerId: String(playerId), name: playerName, wins };
+    const entry = { playerId: String(playerId), name, wins: wins ?? 0 };
 
     if (existing >= 0) {
       data.players[existing] = entry;
