@@ -3076,19 +3076,28 @@ app.post("/api/events/register", async (req, res) => {
   const name = username.trim();
 
   try {
-    // Look up player by name via AoE3 Explorer (no CORS issue server-side)
-    const lookupUrl = `${AOE3_API_BASE}/players?name=like.*${encodeURIComponent(name)}*&limit=1`;
-    const lookupResp = await fetch(lookupUrl, { headers: { Accept: "application/json" } });
+    // Look up player by name via freefoodparty leaderboard
+    const lookupResp = await fetch(
+      "https://api.freefoodparty.com/player/leaderboard?gameMode=2",
+      { headers: { Accept: "application/json" } }
+    );
     if (!lookupResp.ok) throw new Error(`Player lookup failed (${lookupResp.status})`);
-    const players = await lookupResp.json();
+    const leaderboard = await lookupResp.json();
 
-    if (!Array.isArray(players) || players.length === 0) {
+    if (!Array.isArray(leaderboard)) {
+      throw new Error("Unexpected leaderboard response format");
+    }
+
+    const match = leaderboard.find(
+      (p) => p.name && p.name.toLowerCase() === name.toLowerCase()
+    );
+
+    if (!match) {
       return res.status(404).json({ success: false, error: `Player "${name}" not found` });
     }
 
-    const player = players[0];
-    const playerId = player.gameId;
-    const playerName = player.name ?? name;
+    const playerId = match.idPlayer;
+    const playerName = match.name;
 
     if (!playerId) {
       return res.status(404).json({ success: false, error: "Could not determine player ID" });
