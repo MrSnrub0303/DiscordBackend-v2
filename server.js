@@ -2991,42 +2991,63 @@ async function saveEventsData(data) {
   await fs.writeFile(EVENTS_DATA_PATH, JSON.stringify(data, null, 2), "utf-8");
 }
 
+// Tournament window (Unix timestamps matching the event date range)
+const TOURNAMENT_START = new Date(1775174400 * 1000); // ~2026-04-01
+const TOURNAMENT_END   = new Date(1775952000 * 1000); // ~2026-04-10
+
 async function fetchPlayerWins(playerId) {
-  const url =
-    `${AOE3_API_BASE}/rpc/get_player_match_history_v2_legacy` +
-    `?p_player_id=${playerId}&p_limit=200&p_offset=0` +
-    `&type=eq.3vs3%20Supremacy&isRanked=eq.true` +
-    `&date=gte.1775174400&date=lt.1775952000`;
-
-  const resp = await fetch(url, {
-    headers: { "Accept": "application/json" },
-  });
-  if (!resp.ok) throw new Error(`AoE3 API error: ${resp.status}`);
-  const matches = await resp.json();
-
-  if (!Array.isArray(matches) || matches.length === 0) return 0;
-
+  // freefoodparty API — no CORS issues when called server-side
+  // gameMode=2 = 3v3 Supremacy; paginate until we're past the tournament window
   const pid = String(playerId);
+  const size = 50;
+  let page = 0;
   let qualifyingWins = 0;
 
-  for (const match of matches) {
-    const winners = match.winnersStats;
-    const losers = match.losersStats;
+  while (true) {
+    const url =
+      `https://api.freefoodparty.com/games` +
+      `?playerId=${playerId}&gameMode=2&page=${page}&size=${size}`;
 
-    if (!Array.isArray(winners) || !Array.isArray(losers)) continue;
+    const resp = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!resp.ok) throw new Error(`Match history fetch failed (${resp.status})`);
+    const body = await resp.json();
 
-    // Did this player win?
-    const won = winners.some((p) => String(p.playerId) === pid);
-    if (!won) continue;
+    const games = body.content || [];
+    if (games.length === 0) break;
 
-    // W_elo = sum of elo of all winning team players
-    // L_elo = sum of elo of all losing team players
-    // Formula: Elo Gained = (W_elo - L_elo) × (1/25) + 16
-    const wElo = winners.reduce((sum, p) => sum + (p.elo || 0), 0);
-    const lElo = losers.reduce((sum, p) => sum + (p.elo || 0), 0);
-    const eloGain = (wElo - lElo) * (1 / 25) + 16;
+    let passedWindowStart = false;
 
-    if (eloGain >= 5) qualifyingWins++;
+    for (const game of games) {
+      const startDate = new Date(game.startDate);
+
+      // Games are sorted newest-first; stop once we go past the window start
+      if (startDate < TOURNAMENT_START) {
+        passedWindowStart = true;
+        break;
+      }
+
+      // Skip games that haven't started yet / are after the window end
+      if (startDate >= TOURNAMENT_END) continue;
+
+      // Must be ranked and exactly 6 players (true 3v3)
+      if (!game.isRanked || game.playerCount !== 6) continue;
+
+      // Find this player's entry
+      const entry = (game.matchPlayerInfo || []).find(
+        (p) => String(p.idPlayer) === pid
+      );
+      if (!entry) continue;
+
+      // Must be a win
+      if (entry.result !== 1) continue;
+
+      // Qualifying win: elo gained >= 5
+      const eloGain = (entry.eloAfter || 0) - (entry.eloBefore || 0);
+      if (eloGain >= 5) qualifyingWins++;
+    }
+
+    if (passedWindowStart || games.length < size) break;
+    page++;
   }
 
   return qualifyingWins;
@@ -3044,28 +3065,50 @@ app.get("/api/events/leaderboard", async (req, res) => {
   }
 });
 
-// POST /api/events/register  { playerId, name, wins }
-// The client computes wins directly from the AoE3 API and sends the result here for storage.
+// POST /api/events/register  { username: "STONED_TARXAN" }
+// Server looks up the player, fetches wins, and stores the result.
 app.post("/api/events/register", async (req, res) => {
-  const { playerId, name, wins } = req.body || {};
-  if (!playerId || !name) {
-    return res.status(400).json({ success: false, error: "playerId and name are required" });
+  const { username } = req.body || {};
+  if (!username || !username.trim()) {
+    return res.status(400).json({ success: false, error: "Username is required" });
   }
 
+  const name = username.trim();
+
   try {
+    // Look up player by name via AoE3 Explorer (no CORS issue server-side)
+    const lookupUrl = `${AOE3_API_BASE}/players?name=like.*${encodeURIComponent(name)}*&limit=1`;
+    const lookupResp = await fetch(lookupUrl, { headers: { Accept: "application/json" } });
+    if (!lookupResp.ok) throw new Error(`Player lookup failed (${lookupResp.status})`);
+    const players = await lookupResp.json();
+
+    if (!Array.isArray(players) || players.length === 0) {
+      return res.status(404).json({ success: false, error: `Player "${name}" not found` });
+    }
+
+    const player = players[0];
+    const playerId = player.gameId;
+    const playerName = player.name ?? name;
+
+    if (!playerId) {
+      return res.status(404).json({ success: false, error: "Could not determine player ID" });
+    }
+
+    // Calculate qualifying wins via freefoodparty
+    const wins = await fetchPlayerWins(playerId);
+
+    // Upsert into persistent storage
     const data = await loadEventsData();
     const existing = data.players.findIndex(
       (p) => String(p.playerId) === String(playerId)
     );
-
-    const entry = { playerId: String(playerId), name, wins: wins ?? 0 };
+    const entry = { playerId: String(playerId), name: playerName, wins };
 
     if (existing >= 0) {
       data.players[existing] = entry;
     } else {
       data.players.push(entry);
     }
-
     await saveEventsData(data);
 
     res.json({ success: true, player: entry });
