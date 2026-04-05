@@ -6,6 +6,8 @@ const { Server } = require("socket.io");
 const questions = require("./questions.json");
 const cors = require("cors");
 const StorageService = require("./services/StorageService");
+const fs = require("fs").promises;
+const path = require("path");
 
 const app = express();
 app.use(express.json());
@@ -2969,7 +2971,157 @@ io.on("connection", (socket) => {
   });
 });
 
-const path = require("path");
+// ─────────────────────────────────────────────────────────────────
+// Events Leaderboard
+// ─────────────────────────────────────────────────────────────────
+
+const EVENTS_DATA_PATH = path.join(__dirname, "events_leaderboard.json");
+const AOE3_API_BASE = "https://api.aoe3explorer.com";
+
+async function loadEventsData() {
+  try {
+    const raw = await fs.readFile(EVENTS_DATA_PATH, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return { players: [] };
+  }
+}
+
+async function saveEventsData(data) {
+  await fs.writeFile(EVENTS_DATA_PATH, JSON.stringify(data, null, 2), "utf-8");
+}
+
+async function fetchPlayerWins(playerId) {
+  const url =
+    `${AOE3_API_BASE}/rpc/get_player_match_history_v2_legacy` +
+    `?p_player_id=${playerId}&p_limit=200&p_offset=0` +
+    `&type=eq.3vs3%20Supremacy&isRanked=eq.true` +
+    `&date=gte.1775174400&date=lt.1775952000`;
+
+  const resp = await fetch(url, {
+    headers: { "Accept": "application/json" },
+  });
+  if (!resp.ok) throw new Error(`AoE3 API error: ${resp.status}`);
+  const matches = await resp.json();
+
+  if (!Array.isArray(matches) || matches.length === 0) return 0;
+
+  const pid = String(playerId);
+  let qualifyingWins = 0;
+
+  for (const match of matches) {
+    const winners = match.winnersStats;
+    const losers = match.losersStats;
+
+    if (!Array.isArray(winners) || !Array.isArray(losers)) continue;
+
+    // Did this player win?
+    const won = winners.some((p) => String(p.playerId) === pid);
+    if (!won) continue;
+
+    // W_elo = sum of elo of all winning team players
+    // L_elo = sum of elo of all losing team players
+    // Formula: Elo Gained = (W_elo - L_elo) × (1/25) + 16
+    const wElo = winners.reduce((sum, p) => sum + (p.elo || 0), 0);
+    const lElo = losers.reduce((sum, p) => sum + (p.elo || 0), 0);
+    const eloGain = (wElo - lElo) * (1 / 25) + 16;
+
+    if (eloGain >= 5) qualifyingWins++;
+  }
+
+  return qualifyingWins;
+}
+
+// GET /api/events/leaderboard
+app.get("/api/events/leaderboard", async (req, res) => {
+  try {
+    const data = await loadEventsData();
+    const sorted = [...data.players].sort((a, b) => b.wins - a.wins);
+    res.json({ success: true, players: sorted });
+  } catch (err) {
+    console.error("[Events] Leaderboard error:", err);
+    res.status(500).json({ success: false, error: "Failed to load leaderboard" });
+  }
+});
+
+// POST /api/events/register  { username: "STONED_TARXAN" }
+app.post("/api/events/register", async (req, res) => {
+  const { username } = req.body || {};
+  if (!username || !username.trim()) {
+    return res.status(400).json({ success: false, error: "Username is required" });
+  }
+
+  const name = username.trim();
+
+  try {
+    // Look up player by name
+    const lookupUrl = `${AOE3_API_BASE}/players?name=like.*${encodeURIComponent(name)}*&limit=1`;
+    const lookupResp = await fetch(lookupUrl, { headers: { "Accept": "application/json" } });
+    if (!lookupResp.ok) throw new Error(`Player lookup failed: ${lookupResp.status}`);
+    const players = await lookupResp.json();
+
+    if (!Array.isArray(players) || players.length === 0) {
+      return res.status(404).json({ success: false, error: `Player "${name}" not found` });
+    }
+
+    const player = players[0];
+    const playerId = player.gameId;
+    const playerName = player.name ?? name;
+
+    if (!playerId) {
+      return res.status(404).json({ success: false, error: "Could not determine player ID from API response" });
+    }
+
+    // Fetch their qualifying win count
+    const wins = await fetchPlayerWins(playerId);
+
+    // Load existing data and upsert this player
+    const data = await loadEventsData();
+    const existing = data.players.findIndex(
+      (p) => String(p.playerId) === String(playerId)
+    );
+
+    const entry = { playerId: String(playerId), name: playerName, wins };
+
+    if (existing >= 0) {
+      data.players[existing] = entry;
+    } else {
+      data.players.push(entry);
+    }
+
+    await saveEventsData(data);
+
+    res.json({ success: true, player: entry });
+  } catch (err) {
+    console.error("[Events] Register error:", err);
+    res.status(500).json({ success: false, error: err.message || "Registration failed" });
+  }
+});
+
+// POST /api/events/refresh  { playerId: "15762644" } — re-fetches wins for one player
+app.post("/api/events/refresh", async (req, res) => {
+  const { playerId } = req.body || {};
+  if (!playerId) {
+    return res.status(400).json({ success: false, error: "playerId is required" });
+  }
+
+  try {
+    const data = await loadEventsData();
+    const idx = data.players.findIndex((p) => String(p.playerId) === String(playerId));
+    if (idx < 0) {
+      return res.status(404).json({ success: false, error: "Player not registered" });
+    }
+
+    const wins = await fetchPlayerWins(playerId);
+    data.players[idx].wins = wins;
+    await saveEventsData(data);
+
+    res.json({ success: true, player: data.players[idx] });
+  } catch (err) {
+    console.error("[Events] Refresh error:", err);
+    res.status(500).json({ success: false, error: err.message || "Refresh failed" });
+  }
+});
 
 if (process.env.NODE_ENV === "production") {
   const frontendPath = path.join(__dirname, "../client/dist");
