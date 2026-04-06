@@ -3152,6 +3152,31 @@ app.post("/events/refresh", async (req, res) => {
   }
 });
 
+// POST /events/refresh-all — re-fetches wins for all registered players atomically
+app.post("/events/refresh-all", async (req, res) => {
+  try {
+    const data = await loadEventsData();
+    if (!data.players.length) {
+      return res.json({ success: true, players: [] });
+    }
+
+    const updatedPlayers = await Promise.all(
+      data.players.map(async (player) => {
+        const wins = await fetchPlayerWins(player.playerId);
+        return { ...player, wins };
+      })
+    );
+
+    data.players = updatedPlayers;
+    await saveEventsData(data);
+
+    res.json({ success: true, players: updatedPlayers });
+  } catch (err) {
+    console.error("[Events] Refresh-all error:", err);
+    res.status(500).json({ success: false, error: err.message || "Refresh failed" });
+  }
+});
+
 if (process.env.NODE_ENV === "production") {
   const frontendPath = path.join(__dirname, "../client/dist");
   app.use(express.static(frontendPath));
