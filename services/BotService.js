@@ -636,6 +636,7 @@ async function checkForESOCLobby() {
         outcomes: prediction.outcomes, // [{ id, title }, ...]
         player1: p1.name,
         player2: p2.name,
+        matchId: lobby.idGame,
         createdAt: Date.now(),
       };
       log.info('Twitch', `Prediction created: "${option1}" vs "${option2}" (id: ${prediction.id})`);
@@ -657,50 +658,39 @@ async function checkESOCLobbyResult() {
   }
 
   try {
-    const url = 'https://api.aoe3explorer.com/matchHistory?isRanked=eq.false&title=eq.ESOC%20LOBBY%20A&order=matchId.desc&limit=10';
+    const { player1, player2, outcomes, matchId } = activePrediction;
+    const url = `https://api.aoe3explorer.com/matchHistory?limit=1&isRanked=eq.false&matchId=eq.${matchId}`;
     const resp = await fetch(url);
     if (!resp.ok) return;
     const matches = await resp.json();
+    if (!matches.length) return; // Game still in progress
 
-    const { player1, player2, outcomes } = activePrediction;
-    const p1Lower = player1.toLowerCase();
-    const p2Lower = player2.toLowerCase();
+    const match = matches[0];
+    const winnerNames = (match.winnersStats || []).map(p => p.name?.toLowerCase()).filter(Boolean);
+    const p1Lower = player1?.toLowerCase();
+    const p2Lower = player2?.toLowerCase();
 
-    for (const match of matches) {
-      const allNames = [
-        ...(match.winnersStats || []),
-        ...(match.losersStats || []),
-      ].map(p => p.name?.toLowerCase());
+    let winningOutcomeId = null;
+    if (p1Lower && winnerNames.includes(p1Lower)) {
+      winningOutcomeId = outcomes[0]?.id;
+    } else if (p2Lower && winnerNames.includes(p2Lower)) {
+      winningOutcomeId = outcomes[1]?.id;
+    }
 
-      if (!allNames.includes(p1Lower) || !allNames.includes(p2Lower)) continue;
-
-      // Found the completed match — determine winner
-      const winnerNames = (match.winnersStats || []).map(p => p.name?.toLowerCase());
-      let winningOutcomeId = null;
-
-      if (winnerNames.includes(p1Lower)) {
-        winningOutcomeId = outcomes[0]?.id;
-      } else if (winnerNames.includes(p2Lower)) {
-        winningOutcomeId = outcomes[1]?.id;
-      }
-
-      if (!winningOutcomeId) {
-        log.warn('Twitch', 'Could not determine winning outcome — cancelling prediction.');
-        await cancelTwitchPrediction(activePrediction.id);
-        activePrediction = null;
-        return;
-      }
-
-      const winner = winnerNames.includes(p1Lower) ? player1 : player2;
-      log.info('Twitch', `Match result: ${winner} wins — resolving prediction.`);
-      const ok = await resolveTwitchPrediction(activePrediction.id, winningOutcomeId);
-      if (ok) {
-        log.info('Twitch', `Prediction resolved: ${winner} wins.`);
-        activePrediction = null;
-      }
+    if (!winningOutcomeId) {
+      log.warn('Twitch', 'Could not determine winning outcome — cancelling prediction.');
+      await cancelTwitchPrediction(activePrediction.id);
+      activePrediction = null;
       return;
     }
-    // No completed match found yet — still in progress
+
+    const winner = winnerNames.includes(p1Lower) ? player1 : player2;
+    log.info('Twitch', `Match result: ${winner} wins — resolving prediction.`);
+    const ok = await resolveTwitchPrediction(activePrediction.id, winningOutcomeId);
+    if (ok) {
+      log.info('Twitch', `Prediction resolved: ${winner} wins.`);
+      activePrediction = null;
+    }
   } catch (err) {
     log.error('Twitch', `checkESOCLobbyResult error: ${err.message}`);
   }
