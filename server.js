@@ -3326,8 +3326,15 @@ app.get("/api/monitor/auth/restream/callback", async (req, res) => {
     return res.send(`<h2>Restream auth failed: ${error || "no code"}</h2>`);
   }
   try {
-    await BotService.exchangeRestreamCode(String(code));
-    res.send("<h2>Restream connected! You can close this tab.</h2>");
+    const tokens = await BotService.exchangeRestreamCode(String(code));
+    res.send(`<!DOCTYPE html><html><body style="font-family:monospace;padding:2rem;background:#1a1a2e;color:#e0e0e0">
+<h2 style="color:#4ade80">✅ Restream connected!</h2>
+<p>Add this as a Render environment variable to avoid re-authorizing after each deploy:</p>
+<p><b>Key:</b> <code style="background:#333;padding:2px 6px">RESTREAM_REFRESH_TOKEN</code></p>
+<p><b>Value:</b></p>
+<textarea rows="3" style="width:100%;background:#333;color:#fff;border:1px solid #555;padding:8px;font-family:monospace" onclick="this.select()">${tokens.refreshToken}</textarea>
+<p style="color:#94a3b8;font-size:0.85em">Once saved in Render, this token will be used automatically on every restart. You can close this tab.</p>
+</body></html>`);
   } catch (err) {
     res.send(`<h2>Restream auth error: ${err.message}</h2>`);
   }

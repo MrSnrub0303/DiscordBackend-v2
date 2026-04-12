@@ -56,8 +56,10 @@ const YOUTUBE_CHANNEL_ID     = process.env.YOUTUBE_CHANNEL_ID    || 'UCDpnRJ_LXu
 // Initial token data from old bot files (used to pre-seed on first run)
 // ─────────────────────────────────────────────────────────────────
 
-// Restream tokens — empty on first run, populated after OAuth via Monitor
-const RESTREAM_SEED_TOKENS = {};
+// Restream tokens — seeded from env var if available (set it after first OAuth flow)
+const RESTREAM_SEED_TOKENS = process.env.RESTREAM_REFRESH_TOKEN
+  ? { refreshToken: process.env.RESTREAM_REFRESH_TOKEN, accessTokenExpiresEpoch: 0 }
+  : {};
 
 // YouTube refresh token assembled at runtime to avoid static secret scanning
 const _yrt = ['1//0gCNSqxPcGL7E', 'CgYIARAAGBASNwF-L9Ir8jm', 'BGjvAF18cO5SyESFbCsx3lVY48Zn', 'VNiqCdaZTLRcQ9luzhX-0JBJMl3-nYkvFQAw'];
