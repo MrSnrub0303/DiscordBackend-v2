@@ -616,7 +616,8 @@ async function checkForESOCLobby() {
     const lobby = games.find(g => g.gameName?.toUpperCase().includes('ESOC LOBBY A'));
     if (!lobby) return;
 
-    const players = lobby.obeservableMatchPlayerInfo || [];
+    const allPlayers = lobby.obeservableMatchPlayerInfo || [];
+    const players = allPlayers.filter(p => p.name !== null && p.idPlayer !== -1);
     if (players.length < 2) return;
 
     const p1 = players[0];
