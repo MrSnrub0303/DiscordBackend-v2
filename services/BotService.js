@@ -100,8 +100,22 @@ const YT_DESCRIPTION = `ESO-Community.net is the largest fan-made community site
 // Shared runtime state
 // ─────────────────────────────────────────────────────────────────
 
+// CIV_MAP: freefoodparty idCiv integer → display name
+// Source: AoE3 DE civ order (verify in-game if any names look off)
+const CIV_MAP = {
+  1:  'British',       2:  'French',      3:  'Spanish',    4:  'Portuguese',
+  5:  'Dutch',         6:  'Russian',     7:  'Ottoman',    8:  'German',
+  9:  'Haudenosaunee', 10: 'Lakota',      11: 'Aztec',      12: 'Japanese',
+  13: 'Chinese',       14: 'Indian',      15: 'Swedish',    16: 'Inca',
+  17: 'Ethiopian',     18: 'Hausa',       19: 'Maltese',    20: 'Italians',
+  21: 'Mexican',       22: 'Americans',
+};
+
 let discordClient = null;
 let tmiClient = null;
+
+// Active prediction state — null when no prediction running
+let activePrediction = null; // { id, outcomes, player1, player2, createdAt }
 
 const status = {
   twitchLive: false,
@@ -144,7 +158,7 @@ function seedTokenFiles() {
   // access token on the first API call anyway.
   saveJson(TWITCH_TOKENS_FILE, {
     access_token: TWITCH_INITIAL_ACCESS_TOKEN,
-    refresh_token: TWITCH_INITIAL_REFRESH_TOKEN,
+    refresh_token: process.env.TWITCH_REFRESH_TOKEN || TWITCH_INITIAL_REFRESH_TOKEN,
     expires_at: 0, // Force immediate refresh on first use
   });
   saveJson(RESTREAM_TOKENS_FILE, RESTREAM_SEED_TOKENS);
@@ -235,7 +249,7 @@ function getTwitchAuthUrl(serverBaseUrl) {
     client_id: TWITCH_CLIENT_ID,
     redirect_uri: redirect,
     response_type: 'code',
-    scope: 'channel:read:stream_key chat:edit chat:read moderator:manage:announcements',
+    scope: 'channel:read:stream_key chat:edit chat:read moderator:manage:announcements channel:manage:predictions',
   });
   return `https://id.twitch.tv/oauth2/authorize?${params}`;
 }
@@ -523,6 +537,186 @@ async function isTwitchLive() {
   if (!resp.ok) return { live: false, info: null };
   const streams = (await resp.json()).data || [];
   return { live: streams.length > 0, info: streams[0] || null };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Twitch Predictions API
+// ─────────────────────────────────────────────────────────────────
+
+async function createTwitchPrediction(title, option1, option2) {
+  const token = await getValidTwitchToken();
+  if (!token) return null;
+  const body = {
+    broadcaster_id: TWITCH_BROADCASTER_ID,
+    title,
+    outcomes: [{ title: option1 }, { title: option2 }],
+    prediction_window: 120, // 2 minutes to vote
+  };
+  const resp = await fetch('https://api.twitch.tv/helix/predictions', {
+    method: 'POST',
+    headers: twitchHeaders(token),
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    log.error('Twitch', `Create prediction failed ${resp.status}: ${await resp.text()}`);
+    return null;
+  }
+  return (await resp.json()).data?.[0] || null;
+}
+
+async function resolveTwitchPrediction(predictionId, winningOutcomeId) {
+  const token = await getValidTwitchToken();
+  if (!token) return false;
+  const resp = await fetch('https://api.twitch.tv/helix/predictions', {
+    method: 'PATCH',
+    headers: twitchHeaders(token),
+    body: JSON.stringify({
+      broadcaster_id: TWITCH_BROADCASTER_ID,
+      id: predictionId,
+      status: 'RESOLVED',
+      winning_outcome_id: winningOutcomeId,
+    }),
+  });
+  if (!resp.ok) {
+    log.error('Twitch', `Resolve prediction failed ${resp.status}: ${await resp.text()}`);
+    return false;
+  }
+  return true;
+}
+
+async function cancelTwitchPrediction(predictionId) {
+  const token = await getValidTwitchToken();
+  if (!token) return false;
+  const resp = await fetch('https://api.twitch.tv/helix/predictions', {
+    method: 'PATCH',
+    headers: twitchHeaders(token),
+    body: JSON.stringify({
+      broadcaster_id: TWITCH_BROADCASTER_ID,
+      id: predictionId,
+      status: 'CANCELED',
+    }),
+  });
+  if (!resp.ok) {
+    log.error('Twitch', `Cancel prediction failed ${resp.status}: ${await resp.text()}`);
+    return false;
+  }
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ESOC Lobby A auto-predictions (every 30s)
+// ─────────────────────────────────────────────────────────────────
+
+async function checkForESOCLobby() {
+  try {
+    const resp = await fetch('https://api.freefoodparty.com/observablelist_all');
+    if (!resp.ok) return;
+    const games = await resp.json();
+    const lobby = games.find(g => g.gameName?.toUpperCase().includes('ESOC LOBBY A'));
+    if (!lobby) return;
+
+    const players = lobby.obeservableMatchPlayerInfo || [];
+    if (players.length < 2) return;
+
+    const p1 = players[0];
+    const p2 = players[1];
+    const civ1 = CIV_MAP[p1.idCiv] || `Civ${p1.idCiv}`;
+    const civ2 = CIV_MAP[p2.idCiv] || `Civ${p2.idCiv}`;
+    // Twitch outcome titles are capped at 25 characters
+    const option1 = `${p1.name} (${civ1})`.slice(0, 25);
+    const option2 = `${p2.name} (${civ2})`.slice(0, 25);
+
+    log.info('Twitch', `ESOC Lobby A detected: ${p1.name} vs ${p2.name} — creating prediction`);
+    const prediction = await createTwitchPrediction('Who will win this game?', option1, option2);
+    if (prediction) {
+      activePrediction = {
+        id: prediction.id,
+        outcomes: prediction.outcomes, // [{ id, title }, ...]
+        player1: p1.name,
+        player2: p2.name,
+        createdAt: Date.now(),
+      };
+      log.info('Twitch', `Prediction created: "${option1}" vs "${option2}" (id: ${prediction.id})`);
+    }
+  } catch (err) {
+    log.error('Twitch', `checkForESOCLobby error: ${err.message}`);
+  }
+}
+
+async function checkESOCLobbyResult() {
+  if (!activePrediction) return;
+
+  // Cancel if prediction is stale (2 hours without a result)
+  if (Date.now() - activePrediction.createdAt > 2 * 60 * 60 * 1000) {
+    log.warn('Twitch', 'Prediction older than 2 hours — cancelling.');
+    await cancelTwitchPrediction(activePrediction.id);
+    activePrediction = null;
+    return;
+  }
+
+  try {
+    const url = 'https://api.aoe3explorer.com/matchHistory?isRanked=eq.false&title=eq.ESOC%20LOBBY%20A&order=matchId.desc&limit=10';
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const matches = await resp.json();
+
+    const { player1, player2, outcomes } = activePrediction;
+    const p1Lower = player1.toLowerCase();
+    const p2Lower = player2.toLowerCase();
+
+    for (const match of matches) {
+      const allNames = [
+        ...(match.winnersStats || []),
+        ...(match.losersStats || []),
+      ].map(p => p.name?.toLowerCase());
+
+      if (!allNames.includes(p1Lower) || !allNames.includes(p2Lower)) continue;
+
+      // Found the completed match — determine winner
+      const winnerNames = (match.winnersStats || []).map(p => p.name?.toLowerCase());
+      let winningOutcomeId = null;
+
+      if (winnerNames.includes(p1Lower)) {
+        winningOutcomeId = outcomes[0]?.id;
+      } else if (winnerNames.includes(p2Lower)) {
+        winningOutcomeId = outcomes[1]?.id;
+      }
+
+      if (!winningOutcomeId) {
+        log.warn('Twitch', 'Could not determine winning outcome — cancelling prediction.');
+        await cancelTwitchPrediction(activePrediction.id);
+        activePrediction = null;
+        return;
+      }
+
+      const winner = winnerNames.includes(p1Lower) ? player1 : player2;
+      log.info('Twitch', `Match result: ${winner} wins — resolving prediction.`);
+      const ok = await resolveTwitchPrediction(activePrediction.id, winningOutcomeId);
+      if (ok) {
+        log.info('Twitch', `Prediction resolved: ${winner} wins.`);
+        activePrediction = null;
+      }
+      return;
+    }
+    // No completed match found yet — still in progress
+  } catch (err) {
+    log.error('Twitch', `checkESOCLobbyResult error: ${err.message}`);
+  }
+}
+
+async function predictionLoop() {
+  while (true) {
+    await sleep(30000);
+    try {
+      if (!activePrediction) {
+        await checkForESOCLobby();
+      } else {
+        await checkESOCLobbyResult();
+      }
+    } catch (err) {
+      log.error('Twitch', `predictionLoop error: ${err.message}`);
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -896,6 +1090,7 @@ async function start() {
   syncEventsLoop();
   streamNotifyLoop();
   thumbnailLoop();
+  predictionLoop();
 
   // Start Twitch chatbot
   const twitchToken = await getValidTwitchToken();

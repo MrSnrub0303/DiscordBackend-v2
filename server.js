@@ -3324,8 +3324,8 @@ app.get("/api/monitor/auth/twitch/callback", async (req, res) => {
     return res.send(`<h2>Twitch auth failed: ${error || "no code"}</h2>`);
   }
   try {
-    await BotService.exchangeTwitchCode(String(code), SERVER_BASE_URL);
-    res.send("<h2>Twitch connected! You can close this tab.</h2>");
+    const tokens = await BotService.exchangeTwitchCode(String(code), SERVER_BASE_URL);
+    res.send(`<h2>Twitch connected!</h2><p>Copy this refresh token and set it as <b>TWITCH_REFRESH_TOKEN</b> in Render so it survives restarts:</p><pre style="background:#111;color:#4ade80;padding:12px;word-break:break-all">${tokens.refresh_token}</pre>`);
   } catch (err) {
     res.send(`<h2>Twitch auth error: ${err.message}</h2>`);
   }
