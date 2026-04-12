@@ -611,7 +611,10 @@ async function checkForESOCLobby() {
   try {
     const resp = await fetch('https://api.freefoodparty.com/observablelist_all');
     if (!resp.ok) return;
-    const games = await resp.json();
+    const raw = await resp.json();
+    // API may return an array or a wrapper object
+    if (!Array.isArray(raw)) log.info('Twitch', `observablelist_all keys: ${Object.keys(raw).join(', ')}`);
+    const games = Array.isArray(raw) ? raw : (raw.games || raw.data || Object.values(raw));
     const lobby = games.find(g => g.gameName?.toUpperCase().includes('ESOC LOBBY A'));
     if (!lobby) return;
 
