@@ -5,8 +5,12 @@ const http = require("http");
 const { Server } = require("socket.io");
 const questions = require("./questions.json");
 const cors = require("cors");
+const multer = require("multer");
 const StorageService = require("./services/StorageService");
+const BotService = require("./services/BotService");
+const LogBuffer = require("./services/LogBuffer");
 const fs = require("fs").promises;
+const fsSync = require("fs");
 const path = require("path");
 
 const app = express();
@@ -3189,5 +3193,162 @@ if (process.env.NODE_ENV === "production") {
     res.redirect("https://discord-frontend-virid.vercel.app");
   });
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Monitor endpoints
+// ─────────────────────────────────────────────────────────────────
+
+const MONITOR_USERNAMES = (process.env.MONITOR_USERNAMES || "")
+  .split(",")
+  .map((u) => u.trim().toLowerCase())
+  .filter(Boolean);
+
+/**
+ * Verify the caller is an authorized monitor user.
+ * Accepts a Discord user access token in Authorization header, calls /users/@me,
+ * and checks the returned username against MONITOR_USERNAMES.
+ */
+async function isMonitorAuthorized(req) {
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
+  if (!token) return false;
+  try {
+    const resp = await fetch("https://discord.com/api/users/@me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) return false;
+    const user = await resp.json();
+    const username = (user.username || "").toLowerCase();
+    return MONITOR_USERNAMES.includes(username);
+  } catch {
+    return false;
+  }
+}
+
+// GET /api/monitor/status
+// Returns service status snapshot + whether the caller is authorized.
+app.get("/api/monitor/status", async (req, res) => {
+  const authorized = await isMonitorAuthorized(req);
+  const botStatus = BotService.getStatus();
+  res.json({
+    authorized,
+    ...(authorized ? botStatus : {}),
+  });
+});
+
+// GET /api/monitor/logs  (authorized only)
+app.get("/api/monitor/logs", async (req, res) => {
+  if (!(await isMonitorAuthorized(req))) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  res.json({ logs: LogBuffer.getAll() });
+});
+
+// GET /api/monitor/thumbnail  (serves the current thumbnail image)
+app.get("/api/monitor/thumbnail", async (req, res) => {
+  if (!(await isMonitorAuthorized(req))) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const thumbnailPath = path.join(__dirname, "uploads", "thumb_upload.jpg");
+  if (!fsSync.existsSync(thumbnailPath)) {
+    return res.status(404).json({ error: "No thumbnail uploaded yet" });
+  }
+  res.sendFile(thumbnailPath);
+});
+
+// POST /api/monitor/upload-thumbnail  (multer, authorized only)
+const thumbnailUpload = multer({
+  storage: multer.diskStorage({
+    destination: path.join(__dirname, "uploads"),
+    filename: (_req, _file, cb) => cb(null, "thumb_upload.jpg"),
+  }),
+  fileFilter: (_req, file, cb) => {
+    const ok = ["image/jpeg", "image/png", "image/jpg"].includes(file.mimetype);
+    cb(ok ? null : new Error("Only PNG or JPEG images allowed"), ok);
+  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+});
+
+app.post(
+  "/api/monitor/upload-thumbnail",
+  async (req, res, next) => {
+    if (!(await isMonitorAuthorized(req))) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    next();
+  },
+  thumbnailUpload.single("thumbnail"),
+  (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    LogBuffer.info("Monitor", `Thumbnail updated by authorized user (${req.file.originalname})`);
+    res.json({ success: true, filename: req.file.filename });
+  }
+);
+
+// ── OAuth flows ──────────────────────────────────────────────────
+
+const SERVER_BASE_URL = process.env.SERVER_BASE_URL || "";
+
+// Twitch
+app.get("/api/monitor/auth/twitch", (_req, res) => {
+  res.redirect(BotService.getTwitchAuthUrl(SERVER_BASE_URL));
+});
+
+app.get("/api/monitor/auth/twitch/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.send(`<h2>Twitch auth failed: ${error || "no code"}</h2>`);
+  }
+  try {
+    await BotService.exchangeTwitchCode(String(code), SERVER_BASE_URL);
+    res.send("<h2>Twitch connected! You can close this tab.</h2>");
+  } catch (err) {
+    res.send(`<h2>Twitch auth error: ${err.message}</h2>`);
+  }
+});
+
+// Restream
+app.get("/api/monitor/auth/restream", (_req, res) => {
+  res.redirect(BotService.getRestreamAuthUrl());
+});
+
+app.get("/api/monitor/auth/restream/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.send(`<h2>Restream auth failed: ${error || "no code"}</h2>`);
+  }
+  try {
+    await BotService.exchangeRestreamCode(String(code));
+    res.send("<h2>Restream connected! You can close this tab.</h2>");
+  } catch (err) {
+    res.send(`<h2>Restream auth error: ${err.message}</h2>`);
+  }
+});
+
+// YouTube
+app.get("/api/monitor/auth/youtube", (_req, res) => {
+  res.redirect(BotService.getYouTubeAuthUrl());
+});
+
+app.get("/api/monitor/auth/youtube/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.send(`<h2>YouTube auth failed: ${error || "no code"}</h2>`);
+  }
+  try {
+    await BotService.exchangeYouTubeCode(String(code));
+    res.send("<h2>YouTube connected! You can close this tab.</h2>");
+  } catch (err) {
+    res.send(`<h2>YouTube auth error: ${err.message}</h2>`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Start bot service
+// ─────────────────────────────────────────────────────────────────
+
+BotService.start().catch((err) =>
+  LogBuffer.error("BotService", `Startup error: ${err.message}`)
+);
 
 server.listen(PORT, () => {});
