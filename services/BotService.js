@@ -37,8 +37,8 @@ const TWITCH_CHANNEL_NAME   = process.env.TWITCH_CHANNEL_NAME   || 'esoctv';
 const TWITCH_INITIAL_ACCESS_TOKEN  = 's4kqm14chdybsdszwn6duijnqhy2a0';
 const TWITCH_INITIAL_REFRESH_TOKEN = 'btzw2cr8gxjtyj4dly0qymx9mszzpqilg5ahu3zep6ncou2efg';
 
-const RESTREAM_CLIENT_ID     = process.env.RESTREAM_CLIENT_ID     || '32203732-6f14-4fa5-b1a1-7c0e9528b8a5';
-const RESTREAM_CLIENT_SECRET = process.env.RESTREAM_CLIENT_SECRET || 'ca08d2d3-3b83-46a8-9900-ffb5a0f57b8a';
+const RESTREAM_CLIENT_ID     = process.env.RESTREAM_CLIENT_ID     || 'c8361611-8edf-4eec-a08d-2355a0eeb6a8';
+const RESTREAM_CLIENT_SECRET = process.env.RESTREAM_CLIENT_SECRET || '7431adc5-8bff-488e-aca6-17c4886cd615';
 // Redirect URI registered in Restream developer portal — update there if you change this.
 const RESTREAM_REDIRECT_URI  = process.env.RESTREAM_REDIRECT_URI  || 'https://discordbackend-v2.onrender.com/api/monitor/auth/restream/callback';
 const RESTREAM_TWITCH_CH     = process.env.RESTREAM_TWITCH_CHANNEL_ID  || '14903207';
@@ -56,13 +56,8 @@ const YOUTUBE_CHANNEL_ID     = process.env.YOUTUBE_CHANNEL_ID    || 'UCDpnRJ_LXu
 // Initial token data from old bot files (used to pre-seed on first run)
 // ─────────────────────────────────────────────────────────────────
 
-// From ESOCSchedulingBot/restream_tokens.json
-const RESTREAM_SEED_TOKENS = {
-  accessToken: 'b0dd12b30bdfa6334f44e1b84026411415d256b6',
-  refreshToken: '0ab4b59553a2bb4b1af2586a7f892a9af392cb9a',
-  accessTokenExpiresEpoch: 0, // Treat as already expired — will auto-refresh on startup
-  refreshTokenExpiresEpoch: 1788930581, // Refresh token valid until ~Sep 2026
-};
+// Restream tokens — empty on first run, populated after OAuth via Monitor
+const RESTREAM_SEED_TOKENS = {};
 
 // YouTube refresh token assembled at runtime to avoid static secret scanning
 const _yrt = ['1//0gCNSqxPcGL7E', 'CgYIARAAGBASNwF-L9Ir8jm', 'BGjvAF18cO5SyESFbCsx3lVY48Zn', 'VNiqCdaZTLRcQ9luzhX-0JBJMl3-nYkvFQAw'];
