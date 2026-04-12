@@ -3284,6 +3284,31 @@ app.post(
   }
 );
 
+// ── Unprefixed aliases (Discord Activity proxy strips /api) ──────
+app.get("/monitor/status", (_req, res) => res.json(BotService.getStatus()));
+app.get("/monitor/logs",   (_req, res) => res.json({ logs: LogBuffer.getAll() }));
+
+app.get("/monitor/thumbnail", async (req, res) => {
+  if (!(await isMonitorAuthorized(req))) return res.status(403).json({ error: "Forbidden" });
+  const thumbnailPath = path.join(__dirname, "uploads", "thumb_upload.jpg");
+  if (!fsSync.existsSync(thumbnailPath)) return res.status(404).json({ error: "No thumbnail uploaded yet" });
+  res.sendFile(thumbnailPath);
+});
+
+app.post(
+  "/monitor/upload-thumbnail",
+  async (req, res, next) => {
+    if (!(await isMonitorAuthorized(req))) return res.status(403).json({ error: "Forbidden" });
+    next();
+  },
+  thumbnailUpload.single("thumbnail"),
+  (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    LogBuffer.info("Monitor", `Thumbnail updated (${req.file.originalname})`);
+    res.json({ success: true, filename: req.file.filename });
+  }
+);
+
 // ── OAuth flows ──────────────────────────────────────────────────
 
 const SERVER_BASE_URL = process.env.SERVER_BASE_URL || "https://discordbackend-v2.onrender.com";
