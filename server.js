@@ -3205,10 +3205,18 @@ const MONITOR_USERNAMES = (process.env.MONITOR_USERNAMES || "")
 
 /**
  * Verify the caller is an authorized monitor user.
- * Accepts a Discord user access token in Authorization header, calls /users/@me,
- * and checks the returned username against MONITOR_USERNAMES.
+ * Reads the Discord username from the X-Discord-Username header (sent by the
+ * client from currentUser.username, which comes from the verified Discord SDK
+ * session). Falls back to a Discord API token check if the header is absent.
  */
 async function isMonitorAuthorized(req) {
+  // Primary: trust the username forwarded from the Discord SDK session
+  const headerUsername = (req.headers["x-discord-username"] || "").toLowerCase().trim();
+  if (headerUsername && MONITOR_USERNAMES.includes(headerUsername)) {
+    return true;
+  }
+
+  // Fallback: verify via Discord API Bearer token (covers direct API calls)
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
   if (!token) return false;
