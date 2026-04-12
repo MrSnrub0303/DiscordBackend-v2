@@ -101,14 +101,14 @@ const YT_DESCRIPTION = `ESO-Community.net is the largest fan-made community site
 // ─────────────────────────────────────────────────────────────────
 
 // CIV_MAP: freefoodparty idCiv integer → display name
-// Source: AoE3 DE civ order (verify in-game if any names look off)
+// Verified against live game data and user corrections
 const CIV_MAP = {
-  1:  'British',       2:  'French',      3:  'Spanish',    4:  'Portuguese',
-  5:  'Dutch',         6:  'Russian',     7:  'Ottoman',    8:  'German',
-  9:  'Haudenosaunee', 10: 'Lakota',      11: 'Aztec',      12: 'Japanese',
-  13: 'Chinese',       14: 'Indian',      15: 'Swedish',    16: 'Inca',
-  17: 'Ethiopian',     18: 'Hausa',       19: 'Maltese',    20: 'Italians',
-  21: 'Mexican',       22: 'Americans',
+  1:  'Spanish',       2:  'British',     3:  'French',     4:  'Portuguese',
+  5:  'Dutch',         6:  'Russian',     7:  'German',     8:  'Ottoman',
+  9:  'Iroquois',      10: 'Lakota',      11: 'Aztec',      12: 'Chinese',
+  13: 'Japanese',      14: 'Indian',      15: 'Inca',       16: 'Swedish',
+  17: 'United States', 18: 'Ethiopian',   19: 'Hausa',      20: 'Mexican',
+  21: 'Italians',      22: 'Maltese',
 };
 
 let discordClient = null;
