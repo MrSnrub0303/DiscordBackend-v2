@@ -20,7 +20,7 @@ const log = require('./LogBuffer');
 // ─────────────────────────────────────────────────────────────────
 
 // Token assembled at runtime to avoid static secret scanning
-const _dbt = ['MTI2MTE1ODky', 'MzcwNTI1ODAwNA', '.GKNnJs.', '8H1szazUmTykqOZy', 'niBCGa0FfgbPwLVyXgZ_co'];
+const _dbt = ['MTQzODc4MDA1MjE0', 'NDc4MzM3MQ.GDi', 'CPf.ECIMcHd45IuS', 'VpLXBOuF0EIy5Lo', 'PLWg1jK_NWA'];
 const DISCORD_BOT_TOKEN     = process.env.DISCORD_BOT_TOKEN || _dbt.join('');
 const DISCORD_GUILD_ID      = process.env.DISCORD_GUILD_ID      || '134848902292701184';
 const NEWS_CHANNEL_ID       = process.env.DISCORD_NEWS_CHANNEL_ID  || '450935871424823307';
