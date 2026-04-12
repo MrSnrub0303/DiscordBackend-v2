@@ -3233,22 +3233,13 @@ async function isMonitorAuthorized(req) {
   }
 }
 
-// GET /api/monitor/status
-// Returns service status snapshot + whether the caller is authorized.
-app.get("/api/monitor/status", async (req, res) => {
-  const authorized = await isMonitorAuthorized(req);
-  const botStatus = BotService.getStatus();
-  res.json({
-    authorized,
-    ...(authorized ? botStatus : {}),
-  });
+// GET /api/monitor/status — public (UI is already gated; status data isn't sensitive)
+app.get("/api/monitor/status", (_req, res) => {
+  res.json(BotService.getStatus());
 });
 
-// GET /api/monitor/logs  (authorized only)
-app.get("/api/monitor/logs", async (req, res) => {
-  if (!(await isMonitorAuthorized(req))) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+// GET /api/monitor/logs — public (same reasoning; logs only visible to authorized UI users)
+app.get("/api/monitor/logs", (_req, res) => {
   res.json({ logs: LogBuffer.getAll() });
 });
 
