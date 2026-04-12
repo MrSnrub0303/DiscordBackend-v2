@@ -908,6 +908,14 @@ async function start() {
     log.warn('Chatbot', 'No valid Twitch token on startup — authorize via Monitor to enable chatbot.');
   }
 
+  // Validate YouTube tokens on startup
+  const yt = await getYouTubeService();
+  if (yt) {
+    log.info('YouTube', 'Tokens loaded and ready.');
+  } else {
+    log.warn('YouTube', 'No refresh token — YouTube features disabled.');
+  }
+
   log.info('BotService', 'All background services started.');
 }
 

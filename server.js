@@ -25,7 +25,7 @@ app.use(
       "https://discordbackend-v2.onrender.com",
     ],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Discord-Username"],
   }),
 );
 
