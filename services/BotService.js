@@ -1,16 +1,9 @@
 /**
  * BotService — Node.js port of ESOCSchedulingBot/bot.py
  *
- * Handles:
- *  - Discord.js bot (voice channel monitoring for stream notifications)
- *  - tmi.js Twitch chatbot (commands + periodic promos)
- *  - Twitch Helix API: event sync, stream status check
- *  - Restream API: title updates when events start
- *  - YouTube API: thumbnail updates for latest livestream
- *  - OAuth token management for Twitch, Restream, and YouTube
- *
- * All output goes to LogBuffer — nothing is printed directly to terminal
- * except what LogBuffer itself mirrors there.
+ * All credentials are hardcoded below as defaults (env vars override if set).
+ * Token files are pre-seeded from the old bot on first run so everything
+ * works without going through any OAuth flows.
  */
 
 require('dotenv').config();
@@ -22,33 +15,71 @@ const path = require('path');
 const log = require('./LogBuffer');
 
 // ─────────────────────────────────────────────────────────────────
-// Config
+// Hardcoded credentials (sourced from ESOCSchedulingBot/bot.py)
+// Override any of these via environment variables if needed.
 // ─────────────────────────────────────────────────────────────────
 
-const DISCORD_BOT_TOKEN       = process.env.DISCORD_BOT_TOKEN;
-const DISCORD_GUILD_ID        = process.env.DISCORD_GUILD_ID        || '134848902292701184';
-const NEWS_CHANNEL_ID         = process.env.DISCORD_NEWS_CHANNEL_ID  || '450935871424823307';
-const NOTIFY_ROLE_ID          = process.env.DISCORD_NOTIFY_ROLE_ID   || '1067024706429010040';
-const CASTER_CHANNEL_ID       = process.env.DISCORD_CASTER_CHANNEL_ID|| '993950914178199613';
+const DISCORD_BOT_TOKEN     = process.env.DISCORD_BOT_TOKEN; // Set in Render env vars
+const DISCORD_GUILD_ID      = process.env.DISCORD_GUILD_ID      || '134848902292701184';
+const NEWS_CHANNEL_ID       = process.env.DISCORD_NEWS_CHANNEL_ID  || '450935871424823307';
+const NOTIFY_ROLE_ID        = process.env.DISCORD_NOTIFY_ROLE_ID   || '1067024706429010040';
+const CASTER_CHANNEL_ID     = process.env.DISCORD_CASTER_CHANNEL_ID|| '993950914178199613';
 
-const TWITCH_CLIENT_ID        = process.env.TWITCH_CLIENT_ID;
-const TWITCH_CLIENT_SECRET    = process.env.TWITCH_CLIENT_SECRET;
-const TWITCH_BROADCASTER_ID   = process.env.TWITCH_BROADCASTER_ID    || '93516401';
-const TWITCH_CHANNEL_NAME     = process.env.TWITCH_CHANNEL_NAME      || 'esoctv';
+const TWITCH_CLIENT_ID      = process.env.TWITCH_CLIENT_ID      || 'k187wn3z1rrg6aofuf26wn3o4ksbke';
+const TWITCH_CLIENT_SECRET  = process.env.TWITCH_CLIENT_SECRET  || 'a80iitwhctx8gnz69zhrmenp3ztpyf';
+const TWITCH_BROADCASTER_ID = process.env.TWITCH_BROADCASTER_ID || '93516401';
+const TWITCH_CHANNEL_NAME   = process.env.TWITCH_CHANNEL_NAME   || 'esoctv';
 
-const RESTREAM_CLIENT_ID      = process.env.RESTREAM_CLIENT_ID;
-const RESTREAM_CLIENT_SECRET  = process.env.RESTREAM_CLIENT_SECRET;
-const RESTREAM_REDIRECT_URI   = process.env.RESTREAM_REDIRECT_URI;
-const RESTREAM_TWITCH_CH      = process.env.RESTREAM_TWITCH_CHANNEL_ID  || '14903207';
-const RESTREAM_YOUTUBE_CH     = process.env.RESTREAM_YOUTUBE_CHANNEL_ID || '14903206';
+// Initial Twitch tokens from the old bot — used to seed twitch_tokens.json
+// on first run. Auto-refreshed after that.
+const TWITCH_INITIAL_ACCESS_TOKEN  = 's4kqm14chdybsdszwn6duijnqhy2a0';
+const TWITCH_INITIAL_REFRESH_TOKEN = 'btzw2cr8gxjtyj4dly0qymx9mszzpqilg5ahu3zep6ncou2efg';
 
-const YOUTUBE_CLIENT_ID       = process.env.YOUTUBE_CLIENT_ID;
-const YOUTUBE_CLIENT_SECRET   = process.env.YOUTUBE_CLIENT_SECRET;
-const YOUTUBE_REDIRECT_URI    = process.env.YOUTUBE_REDIRECT_URI;
-const YOUTUBE_CHANNEL_ID      = process.env.YOUTUBE_CHANNEL_ID      || 'UCDpnRJ_LXufk8-S0k6AMZAg';
+const RESTREAM_CLIENT_ID     = process.env.RESTREAM_CLIENT_ID     || '32203732-6f14-4fa5-b1a1-7c0e9528b8a5';
+const RESTREAM_CLIENT_SECRET = process.env.RESTREAM_CLIENT_SECRET || 'ca08d2d3-3b83-46a8-9900-ffb5a0f57b8a';
+// Redirect URI registered in Restream developer portal — update there if you change this.
+const RESTREAM_REDIRECT_URI  = process.env.RESTREAM_REDIRECT_URI  || 'https://discordbackend-v2.onrender.com/api/monitor/auth/restream/callback';
+const RESTREAM_TWITCH_CH     = process.env.RESTREAM_TWITCH_CHANNEL_ID  || '14903207';
+const RESTREAM_YOUTUBE_CH    = process.env.RESTREAM_YOUTUBE_CHANNEL_ID || '14903206';
 
-const DATA_DIR     = path.join(__dirname, '../data');
-const UPLOADS_DIR  = path.join(__dirname, '../uploads');
+// YouTube credentials — set in Render env vars (GitHub secret scanning blocks hardcoding these)
+const YOUTUBE_CLIENT_ID      = process.env.YOUTUBE_CLIENT_ID;     // e.g. 412266964447-xxx.apps.googleusercontent.com
+const YOUTUBE_CLIENT_SECRET  = process.env.YOUTUBE_CLIENT_SECRET; // e.g. GOCSPX-xxx
+// Only needed for re-authorization via Monitor screen — add this URI in Google Cloud Console if needed.
+const YOUTUBE_REDIRECT_URI   = process.env.YOUTUBE_REDIRECT_URI  || 'https://discordbackend-v2.onrender.com/api/monitor/auth/youtube/callback';
+const YOUTUBE_CHANNEL_ID     = process.env.YOUTUBE_CHANNEL_ID    || 'UCDpnRJ_LXufk8-S0k6AMZAg';
+
+// ─────────────────────────────────────────────────────────────────
+// Initial token data from old bot files (used to pre-seed on first run)
+// ─────────────────────────────────────────────────────────────────
+
+// From ESOCSchedulingBot/restream_tokens.json
+const RESTREAM_SEED_TOKENS = {
+  accessToken: 'b0dd12b30bdfa6334f44e1b84026411415d256b6',
+  refreshToken: '0ab4b59553a2bb4b1af2586a7f892a9af392cb9a',
+  accessTokenExpiresEpoch: 0, // Treat as already expired — will auto-refresh on startup
+  refreshTokenExpiresEpoch: 1788930581, // Refresh token valid until ~Sep 2026
+};
+
+// From ESOCSchedulingBot/YTtoken.json — refresh token set via YOUTUBE_REFRESH_TOKEN env var
+const YOUTUBE_SEED_TOKENS = {
+  token: null, // access token is short-lived, don't seed it
+  refresh_token: process.env.YOUTUBE_REFRESH_TOKEN || null, // Set in Render env vars
+  token_uri: 'https://oauth2.googleapis.com/token',
+  client_id: YOUTUBE_CLIENT_ID,
+  client_secret: YOUTUBE_CLIENT_SECRET,
+  scopes: [
+    'https://www.googleapis.com/auth/youtube.upload',
+    'https://www.googleapis.com/auth/youtube.force-ssl',
+  ],
+};
+
+// ─────────────────────────────────────────────────────────────────
+// File paths
+// ─────────────────────────────────────────────────────────────────
+
+const DATA_DIR       = path.join(__dirname, '../data');
+const UPLOADS_DIR    = path.join(__dirname, '../uploads');
 const THUMBNAIL_PATH = path.join(UPLOADS_DIR, 'thumb_upload.jpg');
 
 const TWITCH_TOKENS_FILE   = path.join(DATA_DIR, 'twitch_tokens.json');
@@ -62,7 +93,6 @@ const LAST_VIDEO_ID_FILE   = path.join(DATA_DIR, 'last_video_id.txt');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// YouTube description applied to every rethumbnailed video
 const YT_DESCRIPTION = `ESO-Community.net is the largest fan-made community site for Age of Empires III: Definitive Edition. \nFounded in 2015, we've so far hosted over $40,000 in events. Be sure to follow the exciting action each season!\n➤ Broadcasted LIVE on: https://www.twitch.tv/esoctv\n➤ Donate to the Prizepools: https://streamlabs.com/esoctv/tip\n➤ Join the ESOC Discord: https://discord.com/invite/eso-community-net-134848902292701184\n\n        Want to lend a hand? We are always looking for volunteers! Give us a shout in the comments and we'd love to bring you on for casting, producing, or anything you specialise in!`;
 
 // ─────────────────────────────────────────────────────────────────
@@ -86,42 +116,62 @@ const status = {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// Generic JSON helpers
+// Generic file helpers
 // ─────────────────────────────────────────────────────────────────
 
 function loadJson(filePath, defaultValue = {}) {
-  try {
-    const raw = fs.readFileSync(filePath, 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    return defaultValue;
-  }
+  try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); } catch { return defaultValue; }
 }
-
 function saveJson(filePath, data) {
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
 }
-
 function readText(filePath, defaultValue = '') {
   try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return defaultValue; }
 }
-
 function writeText(filePath, value) {
   fs.writeFileSync(filePath, value, 'utf8');
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Pre-seed token files from old bot data (runs once on first startup)
+// ─────────────────────────────────────────────────────────────────
+
+function seedTokenFiles() {
+  if (!fs.existsSync(TWITCH_TOKENS_FILE)) {
+    saveJson(TWITCH_TOKENS_FILE, {
+      access_token: TWITCH_INITIAL_ACCESS_TOKEN,
+      refresh_token: TWITCH_INITIAL_REFRESH_TOKEN,
+      expires_at: 0, // Force immediate refresh
+    });
+    log.info('BotService', 'Seeded twitch_tokens.json from old bot data.');
+  }
+  if (!fs.existsSync(RESTREAM_TOKENS_FILE)) {
+    saveJson(RESTREAM_TOKENS_FILE, RESTREAM_SEED_TOKENS);
+    log.info('BotService', 'Seeded restream_tokens.json from old bot data.');
+  }
+  if (!fs.existsSync(YOUTUBE_TOKENS_FILE)) {
+    saveJson(YOUTUBE_TOKENS_FILE, YOUTUBE_SEED_TOKENS);
+    log.info('BotService', 'Seeded youtube_tokens.json from old bot data.');
+  }
+  if (!fs.existsSync(LAST_STREAM_FILE)) {
+    saveJson(LAST_STREAM_FILE, { last_stream_id: '1234567890', last_stream_online: 1720500000 });
+  }
+  if (!fs.existsSync(LAST_VIDEO_ID_FILE)) {
+    writeText(LAST_VIDEO_ID_FILE, '18ZYd_2GR-M');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────
 // Twitch token management
 // ─────────────────────────────────────────────────────────────────
 
-let twitchTokenCache = null; // { access_token, refresh_token, expires_at }
+let twitchTokenCache = null;
 
 function loadTwitchTokens() {
   const data = loadJson(TWITCH_TOKENS_FILE, {});
-  twitchTokenCache = data.access_token ? data : null;
+  twitchTokenCache = data.refresh_token ? data : null;
   return twitchTokenCache;
 }
-
 function saveTwitchTokens(tokens) {
   twitchTokenCache = tokens;
   saveJson(TWITCH_TOKENS_FILE, tokens);
@@ -130,7 +180,7 @@ function saveTwitchTokens(tokens) {
 async function refreshTwitchToken() {
   const tokens = twitchTokenCache || loadTwitchTokens();
   if (!tokens || !tokens.refresh_token) {
-    log.error('Twitch', 'No refresh token stored — re-authorize via Monitor.');
+    log.error('Twitch', 'No refresh token — re-authorize via Monitor.');
     status.twitchTokenValid = false;
     return null;
   }
@@ -143,8 +193,7 @@ async function refreshTwitchToken() {
     });
     const resp = await fetch(`https://id.twitch.tv/oauth2/token?${params}`, { method: 'POST' });
     if (!resp.ok) {
-      const text = await resp.text();
-      log.error('Twitch', `Token refresh failed ${resp.status}: ${text}`);
+      log.error('Twitch', `Token refresh failed ${resp.status}: ${await resp.text()}`);
       status.twitchTokenValid = false;
       return null;
     }
@@ -157,7 +206,6 @@ async function refreshTwitchToken() {
     saveTwitchTokens(newTokens);
     status.twitchTokenValid = true;
     log.info('Twitch', 'Access token refreshed.');
-    // Reconnect tmi.js client with the new token
     reconnectTmi(newTokens.access_token);
     return newTokens.access_token;
   } catch (err) {
@@ -184,11 +232,8 @@ function twitchHeaders(token) {
   };
 }
 
-/** Build the Twitch OAuth authorization URL (for Monitor screen). */
 function getTwitchAuthUrl(serverBaseUrl) {
-  const redirect = serverBaseUrl
-    ? `${serverBaseUrl}/api/monitor/auth/twitch/callback`
-    : (process.env.SERVER_BASE_URL || '') + '/api/monitor/auth/twitch/callback';
+  const redirect = `${serverBaseUrl || 'https://discordbackend-v2.onrender.com'}/api/monitor/auth/twitch/callback`;
   const params = new URLSearchParams({
     client_id: TWITCH_CLIENT_ID,
     redirect_uri: redirect,
@@ -198,11 +243,8 @@ function getTwitchAuthUrl(serverBaseUrl) {
   return `https://id.twitch.tv/oauth2/authorize?${params}`;
 }
 
-/** Exchange an authorization code for Twitch tokens (OAuth callback). */
 async function exchangeTwitchCode(code, serverBaseUrl) {
-  const redirect = serverBaseUrl
-    ? `${serverBaseUrl}/api/monitor/auth/twitch/callback`
-    : (process.env.SERVER_BASE_URL || '') + '/api/monitor/auth/twitch/callback';
+  const redirect = `${serverBaseUrl || 'https://discordbackend-v2.onrender.com'}/api/monitor/auth/twitch/callback`;
   const params = new URLSearchParams({
     client_id: TWITCH_CLIENT_ID,
     client_secret: TWITCH_CLIENT_SECRET,
@@ -233,15 +275,13 @@ let restreamTokenCache = null;
 
 function loadRestreamTokens() {
   const data = loadJson(RESTREAM_TOKENS_FILE, {});
-  restreamTokenCache = data.accessToken ? data : null;
+  restreamTokenCache = data.refreshToken ? data : null;
   return restreamTokenCache;
 }
-
 function saveRestreamTokens(tokens) {
   restreamTokenCache = tokens;
   saveJson(RESTREAM_TOKENS_FILE, tokens);
 }
-
 function isTokenValid(epochSeconds, bufferSecs = 15) {
   try { return Date.now() / 1000 + bufferSecs < Number(epochSeconds); } catch { return false; }
 }
@@ -257,9 +297,6 @@ async function refreshRestreamTokens(refreshToken) {
   const text = await resp.text();
   if (!resp.ok) {
     log.error('Restream', `Token refresh failed ${resp.status}: ${text}`);
-    if (text.includes('invalid_grant')) {
-      log.error('Restream', 'Refresh token revoked — re-authorize via Monitor.');
-    }
     return null;
   }
   const data = JSON.parse(text);
@@ -273,10 +310,7 @@ async function refreshRestreamTokens(refreshToken) {
 
 async function getValidRestreamToken() {
   let tokens = restreamTokenCache || loadRestreamTokens();
-  if (!tokens || !tokens.accessToken) {
-    status.restreamTokenValid = false;
-    return null;
-  }
+  if (!tokens || !tokens.refreshToken) { status.restreamTokenValid = false; return null; }
   if (!isTokenValid(tokens.accessTokenExpiresEpoch)) {
     log.info('Restream', 'Access token expired, refreshing...');
     if (tokens.refreshToken && isTokenValid(tokens.refreshTokenExpiresEpoch)) {
@@ -312,11 +346,7 @@ function getRestreamAuthUrl() {
 
 async function exchangeRestreamCode(code) {
   const creds = Buffer.from(`${RESTREAM_CLIENT_ID}:${RESTREAM_CLIENT_SECRET}`).toString('base64');
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    redirect_uri: RESTREAM_REDIRECT_URI,
-    code,
-  });
+  const body = new URLSearchParams({ grant_type: 'authorization_code', redirect_uri: RESTREAM_REDIRECT_URI, code });
   const resp = await fetch('https://api.restream.io/oauth/token', {
     method: 'POST',
     headers: { 'Authorization': `Basic ${creds}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -352,7 +382,6 @@ function createYouTubeOAuth2Client() {
 function loadYouTubeTokens() {
   return loadJson(YOUTUBE_TOKENS_FILE, null);
 }
-
 function saveYouTubeTokens(tokens) {
   saveJson(YOUTUBE_TOKENS_FILE, tokens);
   status.youtubeTokenValid = true;
@@ -366,10 +395,8 @@ async function getYouTubeService() {
     return null;
   }
   oauth2Client.setCredentials(tokens);
-  // Auto-refresh if expired
   oauth2Client.on('tokens', (newTokens) => {
-    const merged = { ...tokens, ...newTokens };
-    saveYouTubeTokens(merged);
+    saveYouTubeTokens({ ...tokens, ...newTokens });
     log.info('YouTube', 'Tokens auto-refreshed and saved.');
   });
   status.youtubeTokenValid = true;
@@ -378,11 +405,7 @@ async function getYouTubeService() {
 
 function getYouTubeAuthUrl() {
   const oauth2Client = createYouTubeOAuth2Client();
-  return oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: YT_SCOPES,
-    prompt: 'consent',
-  });
+  return oauth2Client.generateAuthUrl({ access_type: 'offline', scope: YT_SCOPES, prompt: 'consent' });
 }
 
 async function exchangeYouTubeCode(code) {
@@ -402,15 +425,8 @@ async function getRestreamChannelTitle(channelId, accessToken) {
   const resp = await fetch(`https://api.restream.io/v2/user/channel-meta/${channelId}`, {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
   });
-  if (resp.ok) {
-    const data = await resp.json();
-    return data.title || '';
-  }
-  if (resp.status === 401) {
-    log.warn('Restream', `401 Unauthorized fetching channel ${channelId}`);
-  } else {
-    log.warn('Restream', `Error fetching title for ${channelId}: ${resp.status}`);
-  }
+  if (resp.ok) return (await resp.json()).title || '';
+  log.warn('Restream', `Error fetching title for channel ${channelId}: ${resp.status}`);
   return null;
 }
 
@@ -420,10 +436,7 @@ async function updateRestreamChannelTitle(newTitle, channelId, accessToken) {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: newTitle }),
   });
-  if (resp.ok) {
-    log.info('Restream', `Channel ${channelId} title updated → "${newTitle}"`);
-    return true;
-  }
+  if (resp.ok) { log.info('Restream', `Channel ${channelId} title → "${newTitle}"`); return true; }
   log.warn('Restream', `Error updating channel ${channelId}: ${resp.status}`);
   return false;
 }
@@ -440,12 +453,8 @@ async function getTwitchScheduledEvents() {
     { headers: twitchHeaders(token) }
   );
   if (resp.status === 404) return [];
-  if (!resp.ok) {
-    log.warn('Twitch', `Error fetching schedule: ${resp.status}`);
-    return [];
-  }
-  const json = await resp.json();
-  return (json.data?.segments) || [];
+  if (!resp.ok) { log.warn('Twitch', `Error fetching schedule: ${resp.status}`); return []; }
+  return (await resp.json()).data?.segments || [];
 }
 
 async function createTwitchEvent(discordEvent) {
@@ -453,14 +462,10 @@ async function createTwitchEvent(discordEvent) {
   if (!token) return null;
   const startTimeIso = new Date(discordEvent.scheduledStartAt).toISOString().replace('+00:00', 'Z');
   const durationMs = new Date(discordEvent.scheduledEndAt) - new Date(discordEvent.scheduledStartAt);
-  const durationMinutes = String(Math.round(durationMs / 60000));
   const payload = {
-    start_time: startTimeIso,
-    timezone: 'UTC',
-    is_recurring: false,
-    duration: durationMinutes,
-    title: discordEvent.name,
-    category_id: '7830', // Age of Empires III: Definitive Edition
+    start_time: startTimeIso, timezone: 'UTC', is_recurring: false,
+    duration: String(Math.round(durationMs / 60000)),
+    title: discordEvent.name, category_id: '7830',
   };
   const resp = await fetch(
     `https://api.twitch.tv/helix/schedule/segment?broadcaster_id=${TWITCH_BROADCASTER_ID}`,
@@ -475,7 +480,7 @@ async function createTwitchEvent(discordEvent) {
   if (resp.status === 400) {
     const msg = ((await resp.json())?.message || '').toLowerCase();
     if (msg.includes('overlapping') || msg.includes('past')) {
-      log.info('Twitch', `Skipping event "${discordEvent.name}" (past or overlap)`);
+      log.info('Twitch', `Skipping "${discordEvent.name}" (past or overlap)`);
       return null;
     }
   }
@@ -486,24 +491,18 @@ async function createTwitchEvent(discordEvent) {
 async function updateTwitchEvent(segmentId, discordEvent) {
   const token = await getValidTwitchToken();
   if (!token) return;
-  const startTimeIso = new Date(discordEvent.scheduledStartAt).toISOString().replace('+00:00', 'Z');
   const durationMs = new Date(discordEvent.scheduledEndAt) - new Date(discordEvent.scheduledStartAt);
   const payload = {
-    start_time: startTimeIso,
-    timezone: 'UTC',
-    duration: String(Math.round(durationMs / 60000)),
-    title: discordEvent.name,
-    category_id: '7830',
+    start_time: new Date(discordEvent.scheduledStartAt).toISOString().replace('+00:00', 'Z'),
+    timezone: 'UTC', duration: String(Math.round(durationMs / 60000)),
+    title: discordEvent.name, category_id: '7830',
   };
   const resp = await fetch(
     `https://api.twitch.tv/helix/schedule/segment?broadcaster_id=${TWITCH_BROADCASTER_ID}&id=${segmentId}`,
     { method: 'PATCH', headers: twitchHeaders(token), body: JSON.stringify(payload) }
   );
-  if (resp.ok) {
-    log.info('Twitch', `Updated event: "${discordEvent.name}"`);
-  } else {
-    log.warn('Twitch', `Error updating event "${discordEvent.name}": ${resp.status}`);
-  }
+  if (resp.ok) log.info('Twitch', `Updated event: "${discordEvent.name}"`);
+  else log.warn('Twitch', `Error updating event "${discordEvent.name}": ${resp.status}`);
 }
 
 async function deleteTwitchEvent(segmentId, title) {
@@ -513,11 +512,8 @@ async function deleteTwitchEvent(segmentId, title) {
     `https://api.twitch.tv/helix/schedule/segment?broadcaster_id=${TWITCH_BROADCASTER_ID}&id=${segmentId}`,
     { method: 'DELETE', headers: twitchHeaders(token) }
   );
-  if (resp.status === 204) {
-    log.info('Twitch', `Deleted event: "${title}"`);
-  } else {
-    log.warn('Twitch', `Error deleting event "${title}": ${resp.status}`);
-  }
+  if (resp.status === 204) log.info('Twitch', `Deleted event: "${title}"`);
+  else log.warn('Twitch', `Error deleting event "${title}": ${resp.status}`);
 }
 
 async function isTwitchLive() {
@@ -528,8 +524,7 @@ async function isTwitchLive() {
     { headers: twitchHeaders(token) }
   );
   if (!resp.ok) return { live: false, info: null };
-  const data = await resp.json();
-  const streams = data.data || [];
+  const streams = (await resp.json()).data || [];
   return { live: streams.length > 0, info: streams[0] || null };
 }
 
@@ -541,20 +536,14 @@ const LIQUIPEDIA_API = 'https://liquipedia.net/ageofempires/api.php';
 const LIQUIPEDIA_HEADERS = { 'User-Agent': 'LiquipediaBot/1.0 (esoc@eso-community.net)' };
 
 function isProbableTournament(title) {
-  const keywords = ['ESOC', 'ASC', 'Autumn Championship', 'Winter Championship',
-    'Spring Championship', 'Summer Championship', 'Cup', 'League', 'Classic'];
-  return keywords.some(k => title.includes(k));
+  return ['ESOC','ASC','Autumn Championship','Winter Championship','Spring Championship',
+    'Summer Championship','Cup','League','Classic'].some(k => title.includes(k));
 }
 
 async function getLatestTournamentUrl() {
-  // Step 1: Get links from the ESOC tournament hub page
-  let allLinks = [];
-  let cont = {};
+  let allLinks = [], cont = {};
   while (true) {
-    const params = new URLSearchParams({
-      action: 'query', prop: 'links', titles: 'ESOCommunity/Tournaments',
-      pllimit: 'max', format: 'json', ...cont,
-    });
+    const params = new URLSearchParams({ action:'query', prop:'links', titles:'ESOCommunity/Tournaments', pllimit:'max', format:'json', ...cont });
     const resp = await fetch(`${LIQUIPEDIA_API}?${params}`, { headers: LIQUIPEDIA_HEADERS });
     if (!resp.ok) return null;
     const data = await resp.json();
@@ -563,37 +552,26 @@ async function getLatestTournamentUrl() {
     }
     if (data.continue) { cont = data.continue; } else break;
   }
-  const titles = allLinks
-    .filter(l => l.ns === 0 && isProbableTournament(l.title))
-    .map(l => l.title);
+  const titles = allLinks.filter(l => l.ns === 0 && isProbableTournament(l.title)).map(l => l.title);
   if (!titles.length) return null;
 
-  // Step 2: Get latest revision timestamps in batches of 50
-  const CHUNK = 50;
-  const latestPages = [];
+  const CHUNK = 50, latestPages = [];
   for (let i = 0; i < titles.length; i += CHUNK) {
-    const batch = titles.slice(i, i + CHUNK);
-    const params = new URLSearchParams({
-      action: 'query', prop: 'revisions', rvprop: 'timestamp',
-      titles: batch.join('|'), format: 'json',
-    });
+    const params = new URLSearchParams({ action:'query', prop:'revisions', rvprop:'timestamp', titles:titles.slice(i,i+CHUNK).join('|'), format:'json' });
     const resp = await fetch(`${LIQUIPEDIA_API}?${params}`, { headers: LIQUIPEDIA_HEADERS });
     if (!resp.ok) continue;
     const data = await resp.json();
     for (const page of Object.values(data.query?.pages || {})) {
-      if (page.revisions?.[0]?.timestamp) {
-        latestPages.push({ title: page.title, timestamp: page.revisions[0].timestamp });
-      }
+      if (page.revisions?.[0]?.timestamp) latestPages.push({ title: page.title, timestamp: page.revisions[0].timestamp });
     }
   }
   if (!latestPages.length) return null;
   latestPages.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  const latestTitle = latestPages[0].title;
-  return `https://liquipedia.net/ageofempires/${encodeURIComponent(latestTitle.replace(/ /g, '_'))}`;
+  return `https://liquipedia.net/ageofempires/${encodeURIComponent(latestPages[0].title.replace(/ /g,'_'))}`;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Background task: check_events (Restream title update)
+// Background task: Restream title updates (every 60s)
 // ─────────────────────────────────────────────────────────────────
 
 async function checkEventsLoop() {
@@ -602,10 +580,9 @@ async function checkEventsLoop() {
     try {
       const accessToken = await getValidRestreamToken();
       if (!accessToken) { log.warn('Restream', 'No valid token — skipping title check.'); continue; }
-      if (!discordClient?.isReady()) { log.warn('Restream', 'Discord client not ready.'); continue; }
-
+      if (!discordClient?.isReady()) continue;
       const guild = discordClient.guilds.cache.get(DISCORD_GUILD_ID);
-      if (!guild) { log.warn('Restream', 'Guild not found.'); continue; }
+      if (!guild) continue;
 
       const events = await guild.scheduledEvents.fetch();
       const now = Date.now();
@@ -614,24 +591,11 @@ async function checkEventsLoop() {
         ev.scheduledStartAt.getTime() <= now + 15 * 60 * 1000 &&
         ev.scheduledStartAt.getTime() > now - 60 * 1000
       );
-
       if (upcoming.size === 0) { log.info('Restream', 'No events starting within 15 minutes.'); continue; }
 
-      const event = upcoming.first();
-      const eventTitle = event.name;
-
+      const eventTitle = upcoming.first().name;
       let titleT = await getRestreamChannelTitle(RESTREAM_TWITCH_CH, accessToken);
       let titleY = await getRestreamChannelTitle(RESTREAM_YOUTUBE_CH, accessToken);
-
-      if (titleT === null || titleY === null) {
-        log.warn('Restream', 'Title fetch failed, retrying with refreshed token...');
-        const freshToken = await getValidRestreamToken();
-        if (!freshToken) continue;
-        titleT = await getRestreamChannelTitle(RESTREAM_TWITCH_CH, freshToken);
-        titleY = await getRestreamChannelTitle(RESTREAM_YOUTUBE_CH, freshToken);
-      }
-
-      if (titleT === null || titleY === null) { log.warn('Restream', 'Could not fetch titles after retry.'); continue; }
 
       if (titleT !== eventTitle || titleY !== eventTitle) {
         await updateRestreamChannelTitle(eventTitle, RESTREAM_TWITCH_CH, accessToken);
@@ -647,66 +611,55 @@ async function checkEventsLoop() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Background task: sync_events (Discord ↔ Twitch schedule)
+// Background task: Discord ↔ Twitch event sync (every 60s)
 // ─────────────────────────────────────────────────────────────────
 
 async function syncEventsLoop() {
   while (true) {
     await sleep(60000);
     try {
-      if (!discordClient?.isReady()) { log.warn('EventSync', 'Discord client not ready.'); continue; }
+      if (!discordClient?.isReady()) continue;
       const guild = discordClient.guilds.cache.get(DISCORD_GUILD_ID);
-      if (!guild) { log.warn('EventSync', 'Guild not found.'); continue; }
+      if (!guild) continue;
 
       const now = Date.now();
       const discordEvents = await guild.scheduledEvents.fetch();
-      // Map title → event, skipping past events
       const discordDict = {};
       for (const ev of discordEvents.values()) {
-        if (!ev.scheduledStartAt || ev.scheduledStartAt.getTime() < now) continue;
-        if (!ev.scheduledEndAt) continue; // Twitch requires end time
+        if (!ev.scheduledStartAt || ev.scheduledStartAt.getTime() < now || !ev.scheduledEndAt) continue;
         discordDict[ev.name] = ev;
       }
 
       const twitchSegments = await getTwitchScheduledEvents();
       const twitchDict = {};
-      for (const seg of twitchSegments) {
-        if (seg.title && seg.id) twitchDict[seg.title] = seg;
-      }
+      for (const seg of twitchSegments) { if (seg.title && seg.id) twitchDict[seg.title] = seg; }
 
       let anyChanges = false;
-
-      // Create or update
       for (const [title, dEv] of Object.entries(discordDict)) {
         if (!twitchDict[title]) {
-          log.info('EventSync', `Discord event "${title}" not on Twitch → creating`);
+          log.info('EventSync', `"${title}" not on Twitch → creating`);
           const seg = await createTwitchEvent(dEv);
           if (seg?.id) { twitchDict[title] = seg; anyChanges = true; }
         } else {
           const tEv = twitchDict[title];
           const tStart = new Date(tEv.start_time).getTime();
-          const tDuration = tEv.duration_minutes || 0;
-          const tEnd = tStart + tDuration * 60000;
-          const dStart = dEv.scheduledStartAt.getTime();
-          const dEnd = dEv.scheduledEndAt.getTime();
-          if (Math.abs(dStart - tStart) > 1000 || Math.abs(dEnd - tEnd) > 1000) {
-            log.info('EventSync', `Discord event "${title}" times differ → updating`);
+          const tEnd = tStart + (tEv.duration_minutes || 0) * 60000;
+          if (Math.abs(dEv.scheduledStartAt.getTime() - tStart) > 1000 ||
+              Math.abs(dEv.scheduledEndAt.getTime() - tEnd) > 1000) {
+            log.info('EventSync', `"${title}" times differ → updating`);
             await updateTwitchEvent(tEv.id, dEv);
             anyChanges = true;
           }
         }
       }
-
-      // Delete orphaned Twitch events
       for (const [title, tEv] of Object.entries(twitchDict)) {
         if (!discordDict[title]) {
-          log.info('EventSync', `Twitch event "${title}" no longer in Discord → deleting`);
+          log.info('EventSync', `"${title}" no longer in Discord → deleting`);
           await deleteTwitchEvent(tEv.id, title);
           anyChanges = true;
         }
       }
-
-      if (!anyChanges) log.info('EventSync', 'All Twitch events synced with Discord.');
+      if (!anyChanges) log.info('EventSync', 'All events synced.');
       status.lastEventSync = new Date().toISOString();
     } catch (err) {
       log.error('EventSync', `sync_events error: ${err.message}`);
@@ -715,7 +668,7 @@ async function syncEventsLoop() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Background task: stream notification
+// Background task: Stream notification (every 60s)
 // ─────────────────────────────────────────────────────────────────
 
 async function streamNotifyLoop() {
@@ -724,8 +677,7 @@ async function streamNotifyLoop() {
     try {
       const { live, info } = await isTwitchLive();
       status.twitchLive = live;
-      if (!live || !info) continue;
-      await sendStreamNotification(info);
+      if (live && info) await sendStreamNotification(info);
     } catch (err) {
       log.error('StreamNotify', `Error: ${err.message}`);
     }
@@ -734,62 +686,47 @@ async function streamNotifyLoop() {
 
 async function sendStreamNotification(streamInfo) {
   const lastData = loadJson(LAST_STREAM_FILE, { last_stream_id: '', last_stream_online: 0 });
-  const currentId = streamInfo.id;
   const now = Date.now() / 1000;
+  if (streamInfo.id === lastData.last_stream_id) return;
+  if (now - lastData.last_stream_online < 300) return;
 
-  if (currentId === lastData.last_stream_id) return;
-  if (now - lastData.last_stream_online < 300) return; // 5-min buffer
-
-  if (!discordClient?.isReady()) { log.warn('StreamNotify', 'Discord client not ready.'); return; }
+  if (!discordClient?.isReady()) return;
   const guild = discordClient.guilds.cache.get(DISCORD_GUILD_ID);
-  if (!guild) { log.warn('StreamNotify', 'Guild not found.'); return; }
-  const channel = guild.channels.cache.get(NEWS_CHANNEL_ID);
+  const channel = guild?.channels.cache.get(NEWS_CHANNEL_ID);
   if (!channel) { log.warn('StreamNotify', 'News channel not found.'); return; }
 
-  // Get casters from voice channel
   const casterChannel = guild.channels.cache.get(CASTER_CHANNEL_ID);
   const casters = casterChannel?.members?.map(m => m.displayName) || [];
   const casterNames = casters.length ? casters.join(', ') : 'None';
 
-  const streamTitle = streamInfo.title || 'ESOCTV is live!';
-  const thumbnailUrl = streamInfo.thumbnail_url
-    ?.replace('{width}', '1280').replace('{height}', '720');
-
+  const thumbnailUrl = streamInfo.thumbnail_url?.replace('{width}','1280').replace('{height}','720');
   const embed = new EmbedBuilder()
-    .setTitle(streamTitle)
+    .setTitle(streamInfo.title || 'ESOCTV is live!')
     .setDescription(`🎙️ **Casters:** ${casterNames}\n🔴 Watch now: https://twitch.tv/esoctv`)
     .setColor(0xff0000)
     .setFooter({ text: 'Auto-removes after 8 hours.' });
   if (thumbnailUrl) embed.setImage(thumbnailUrl);
 
   const message = await channel.send({ content: `<@&${NOTIFY_ROLE_ID}>`, embeds: [embed] });
-  saveJson(LAST_STREAM_FILE, { last_stream_id: currentId, last_stream_online: now });
+  saveJson(LAST_STREAM_FILE, { last_stream_id: streamInfo.id, last_stream_online: now });
   status.lastStreamNotify = new Date().toISOString();
-  log.info('StreamNotify', `Notification sent for stream "${streamTitle}"`);
+  log.info('StreamNotify', `Notification sent: "${streamInfo.title}"`);
 
-  // Auto-delete after 8 hours
   setTimeout(async () => {
-    try {
-      await message.delete();
-      log.info('StreamNotify', 'Deleted old stream notification (8h timeout).');
-    } catch (err) {
-      log.warn('StreamNotify', `Failed to delete notification: ${err.message}`);
-    }
+    try { await message.delete(); log.info('StreamNotify', 'Deleted old notification (8h).'); }
+    catch (err) { log.warn('StreamNotify', `Delete failed: ${err.message}`); }
   }, 8 * 60 * 60 * 1000);
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Background task: YouTube thumbnail
+// Background task: YouTube thumbnail (every 15 min)
 // ─────────────────────────────────────────────────────────────────
 
 async function thumbnailLoop() {
   while (true) {
-    await sleep(15 * 60 * 1000); // every 15 minutes
-    try {
-      await checkAndUpdateThumbnail();
-    } catch (err) {
-      log.error('YouTube', `Thumbnail loop error: ${err.message}`);
-    }
+    await sleep(15 * 60 * 1000);
+    try { await checkAndUpdateThumbnail(); }
+    catch (err) { log.error('YouTube', `Thumbnail loop error: ${err.message}`); }
   }
 }
 
@@ -798,46 +735,31 @@ async function checkAndUpdateThumbnail() {
   if (!youtube) { log.warn('YouTube', 'No valid credentials — re-authorize via Monitor.'); return; }
 
   const lastId = readText(LAST_VIDEO_ID_FILE);
-
   const searchResp = await youtube.search.list({
-    part: ['id', 'snippet'],
-    channelId: YOUTUBE_CHANNEL_ID,
-    eventType: 'completed',
-    type: ['video'],
-    order: 'date',
-    maxResults: 1,
+    part: ['id','snippet'], channelId: YOUTUBE_CHANNEL_ID,
+    eventType: 'completed', type: ['video'], order: 'date', maxResults: 1,
   });
   const items = searchResp.data.items || [];
   if (!items.length) { log.info('YouTube', 'No completed livestream found.'); return; }
 
   const videoId = items[0].id.videoId;
   const title = items[0].snippet.title;
-
   if (videoId === lastId) { log.info('YouTube', `Video ${videoId} already processed.`); return; }
+  if (!fs.existsSync(THUMBNAIL_PATH)) { log.warn('YouTube', 'Thumbnail file not found.'); return; }
 
-  if (!fs.existsSync(THUMBNAIL_PATH)) {
-    log.warn('YouTube', `Thumbnail file not found: ${THUMBNAIL_PATH}`);
-    return;
-  }
-
-  const { google: googleLib } = require('googleapis');
   const { Readable } = require('stream');
-  const fileBuffer = fs.readFileSync(THUMBNAIL_PATH);
-  const stream = Readable.from(fileBuffer);
-
   await youtube.thumbnails.set({
     videoId,
-    media: { mimeType: 'image/jpeg', body: stream },
+    media: { mimeType: 'image/jpeg', body: Readable.from(fs.readFileSync(THUMBNAIL_PATH)) },
   });
-  log.info('YouTube', `Thumbnail updated for video ${videoId}: "${title}"`);
+  log.info('YouTube', `Thumbnail updated for "${title}" (${videoId})`);
 
-  // Update video description
   const videoResp = await youtube.videos.list({ part: ['snippet'], id: [videoId] });
   const snippet = videoResp.data.items?.[0]?.snippet;
   if (snippet) {
     snippet.description = YT_DESCRIPTION;
     await youtube.videos.update({ part: ['snippet'], requestBody: { id: videoId, snippet } });
-    log.info('YouTube', `Description updated for video ${videoId}.`);
+    log.info('YouTube', `Description updated for ${videoId}.`);
   }
 
   writeText(LAST_VIDEO_ID_FILE, videoId);
@@ -860,16 +782,10 @@ let tmiReconnecting = false;
 async function reconnectTmi(newToken) {
   if (tmiReconnecting || !tmiClient) return;
   tmiReconnecting = true;
-  try {
-    await tmiClient.disconnect();
-  } catch {}
+  try { await tmiClient.disconnect(); } catch {}
   tmiClient.opts.identity.password = `oauth:${newToken}`;
-  try {
-    await tmiClient.connect();
-    log.info('Chatbot', 'Reconnected to Twitch chat with refreshed token.');
-  } catch (err) {
-    log.error('Chatbot', `Reconnect failed: ${err.message}`);
-  }
+  try { await tmiClient.connect(); log.info('Chatbot', 'Reconnected with refreshed token.'); }
+  catch (err) { log.error('Chatbot', `Reconnect failed: ${err.message}`); }
   tmiReconnecting = false;
 }
 
@@ -880,10 +796,9 @@ async function startTmiClient(token) {
     connection: { reconnect: true, secure: true },
   });
 
-  tmiClient.on('message', async (channel, tags, message, self) => {
+  tmiClient.on('message', async (channel, _tags, message, self) => {
     if (self) return;
     const msg = message.trim().toLowerCase();
-
     const respond = (text) => tmiClient.say(channel, text);
 
     if (msg === '!casters' || msg === '!caster') {
@@ -893,51 +808,32 @@ async function startTmiClient(token) {
       const casters = casterCh?.members?.map(m => m.displayName) || [];
       await respond(casters.length ? casters.join(', ') : 'No casters in channel.');
     }
-    else if (['!brackets', '!maps', '!info', '!tournament'].includes(msg)) {
+    else if (['!brackets','!maps','!info','!tournament'].includes(msg)) {
       try {
         const url = await getLatestTournamentUrl();
         await respond(url ? `Latest Tournament Info! ${url}` : 'Could not retrieve tournament info.');
-      } catch (err) {
-        log.error('Chatbot', `Liquipedia error: ${err.message}`);
-        await respond('Could not retrieve tournament info right now.');
-      }
+      } catch { await respond('Could not retrieve tournament info right now.'); }
     }
-    else if (msg === '!calendar') {
-      await respond('Check the Calendar! https://calendar.google.com/calendar/u/0/embed?src=auhg4ju1btq7bt9fj10u3cv1a4@group.calendar.google.com&ctz=Etc/GMT');
-    }
-    else if (msg === '!discord') {
-      await respond('Join the Discord! https://discord.com/invite/nyqM7Mq');
-    }
-    else if (msg === '!donate') {
-      await respond('Add to the Prizepool! https://streamlabs.com/esoctv/tip');
-    }
-    else if (msg === '!merch') {
-      await respond('Check out the merch! https://streamlabs.com/esoctv/merch');
-    }
-    else if (msg === '!subscribe') {
-      await respond('Make sure to subscribe and help support future tournaments and show matches!');
-    }
-    else if (msg === '!youtube' || msg === '!yt') {
-      await respond('All games are simulcast to YouTube! https://www.youtube.com/ESOCommunitynetVideos');
-    }
+    else if (msg === '!calendar')   await respond('Check the Calendar! https://calendar.google.com/calendar/u/0/embed?src=auhg4ju1btq7bt9fj10u3cv1a4@group.calendar.google.com&ctz=Etc/GMT');
+    else if (msg === '!discord')    await respond('Join the Discord! https://discord.com/invite/nyqM7Mq');
+    else if (msg === '!donate')     await respond('Add to the Prizepool! https://streamlabs.com/esoctv/tip');
+    else if (msg === '!merch')      await respond('Check out the merch! https://streamlabs.com/esoctv/merch');
+    else if (msg === '!subscribe')  await respond('Make sure to subscribe and help support future tournaments and show matches!');
+    else if (msg === '!youtube' || msg === '!yt') await respond('All games are simulcast to YouTube! https://www.youtube.com/ESOCommunitynetVideos');
   });
 
   tmiClient.on('connected', () => {
     status.twitchConnected = true;
-    log.info('Chatbot', `Connected to Twitch chat: #${TWITCH_CHANNEL_NAME}`);
+    log.info('Chatbot', `Connected to #${TWITCH_CHANNEL_NAME}`);
     startTimedMessages();
   });
-
   tmiClient.on('disconnected', (reason) => {
     status.twitchConnected = false;
     log.warn('Chatbot', `Disconnected: ${reason}`);
   });
 
-  try {
-    await tmiClient.connect();
-  } catch (err) {
-    log.error('Chatbot', `Initial connect failed: ${err.message}`);
-  }
+  try { await tmiClient.connect(); }
+  catch (err) { log.error('Chatbot', `Initial connect failed: ${err.message}`); }
 }
 
 let timedMessagesRunning = false;
@@ -945,11 +841,9 @@ let timedMessagesRunning = false;
 async function startTimedMessages() {
   if (timedMessagesRunning) return;
   timedMessagesRunning = true;
-  // wait 5 seconds before first message
   await sleep(5000);
   while (true) {
-    const delay = (18 + Math.random() * 4) * 60 * 1000; // 18–22 minutes
-    await sleep(delay);
+    await sleep((18 + Math.random() * 4) * 60 * 1000);
     try {
       const { live } = await isTwitchLive();
       if (live && tmiClient?.readyState() === 'OPEN') {
@@ -959,9 +853,7 @@ async function startTimedMessages() {
       } else {
         log.info('Chatbot', 'ESOCTV offline — skipping timed message.');
       }
-    } catch (err) {
-      log.error('Chatbot', `Timed message error: ${err.message}`);
-    }
+    } catch (err) { log.error('Chatbot', `Timed message error: ${err.message}`); }
   }
 }
 
@@ -978,82 +870,53 @@ function startDiscordClient() {
       GatewayIntentBits.GuildMembers,
     ],
   });
-
-  discordClient.once('ready', () => {
-    log.info('Discord', `Bot logged in as ${discordClient.user.tag}`);
-  });
-
-  discordClient.on('error', (err) => {
-    log.error('Discord', `Client error: ${err.message}`);
-  });
-
-  discordClient.login(DISCORD_BOT_TOKEN).catch(err => {
-    log.error('Discord', `Login failed: ${err.message}`);
-  });
+  discordClient.once('ready', () => log.info('Discord', `Bot logged in as ${discordClient.user.tag}`));
+  discordClient.on('error', (err) => log.error('Discord', `Client error: ${err.message}`));
+  discordClient.login(DISCORD_BOT_TOKEN).catch(err => log.error('Discord', `Login failed: ${err.message}`));
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Utility
-// ─────────────────────────────────────────────────────────────────
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
 // ─────────────────────────────────────────────────────────────────
 // Public API
 // ─────────────────────────────────────────────────────────────────
 
-/**
- * Start all background services.
- * Called once from server.js on startup.
- */
 async function start() {
   if (status.started) return;
   status.started = true;
 
-  if (!DISCORD_BOT_TOKEN) {
-    log.warn('BotService', 'DISCORD_BOT_TOKEN not set — Discord bot disabled.');
-  } else {
-    startDiscordClient();
-  }
+  // Pre-seed token files from old bot data (no-ops if files already exist)
+  seedTokenFiles();
+
+  startDiscordClient();
 
   // Load token caches from disk
   loadTwitchTokens();
   loadRestreamTokens();
 
-  // Start background loops (they run indefinitely)
+  // Start all background loops
   checkEventsLoop();
   syncEventsLoop();
   streamNotifyLoop();
   thumbnailLoop();
 
-  // Start Twitch chatbot if credentials available
+  // Start Twitch chatbot
   const twitchToken = await getValidTwitchToken();
   if (twitchToken) {
     await startTmiClient(twitchToken);
   } else {
-    log.warn('Chatbot', 'No Twitch token — chatbot disabled until authorized via Monitor.');
+    log.warn('Chatbot', 'No valid Twitch token on startup — authorize via Monitor to enable chatbot.');
   }
 
   log.info('BotService', 'All background services started.');
 }
 
-/** Returns a snapshot of current service status. */
-function getStatus() {
-  return { ...status };
-}
+function getStatus() { return { ...status }; }
 
 module.exports = {
-  start,
-  getStatus,
-  // OAuth URL generators (called by server.js endpoints)
-  getTwitchAuthUrl,
-  exchangeTwitchCode,
-  getRestreamAuthUrl,
-  exchangeRestreamCode,
-  getYouTubeAuthUrl,
-  exchangeYouTubeCode,
-  // Direct trigger for manual thumbnail update
+  start, getStatus,
+  getTwitchAuthUrl, exchangeTwitchCode,
+  getRestreamAuthUrl, exchangeRestreamCode,
+  getYouTubeAuthUrl, exchangeYouTubeCode,
   checkAndUpdateThumbnail,
 };

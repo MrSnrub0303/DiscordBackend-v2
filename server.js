@@ -20,9 +20,9 @@ app.use(
     origin: [
       "http://127.0.0.1",
       "http://localhost:5173",
-  "https://1438780052144783371.discordsays.com",
-      "https://discord-frontend-virid.vercel.app",
-      "https://discordbackend-xggi.onrender.com",
+      "https://1438780052144783371.discordsays.com",
+      "https://discord-frontend-v2.vercel.app",
+      "https://discordbackend-v2.onrender.com",
     ],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -30,8 +30,8 @@ app.use(
 );
 
 const PORT = process.env.PORT || 3001;
-const CLIENT_ID = process.env.VITE_DISCORD_CLIENT_ID;
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const CLIENT_ID = process.env.VITE_DISCORD_CLIENT_ID || '1438780052144783371';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || 'krTplj3aE2ldAtgcXZb3LS_i6KwiRHim';
 const MAX_TIME = 20;
 
 const MAX_POINTS = 150;
@@ -3190,7 +3190,7 @@ if (process.env.NODE_ENV === "production") {
   });
 } else {
   app.get("/", (req, res) => {
-    res.redirect("https://discord-frontend-virid.vercel.app");
+    res.redirect("https://discord-frontend-v2.vercel.app");
   });
 }
 
@@ -3198,7 +3198,7 @@ if (process.env.NODE_ENV === "production") {
 // Monitor endpoints
 // ─────────────────────────────────────────────────────────────────
 
-const MONITOR_USERNAMES = (process.env.MONITOR_USERNAMES || "")
+const MONITOR_USERNAMES = (process.env.MONITOR_USERNAMES || "barronh,mclovin111.,joshua667746,grimescene")
   .split(",")
   .map((u) => u.trim().toLowerCase())
   .filter(Boolean);
@@ -3295,7 +3295,7 @@ app.post(
 
 // ── OAuth flows ──────────────────────────────────────────────────
 
-const SERVER_BASE_URL = process.env.SERVER_BASE_URL || "";
+const SERVER_BASE_URL = process.env.SERVER_BASE_URL || "https://discordbackend-v2.onrender.com";
 
 // Twitch
 app.get("/api/monitor/auth/twitch", (_req, res) => {
