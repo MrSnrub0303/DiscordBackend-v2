@@ -310,7 +310,7 @@ async function getValidRestreamToken() {
   if (!tokens || !tokens.refreshToken) { status.restreamTokenValid = false; return null; }
   if (!isTokenValid(tokens.accessTokenExpiresEpoch)) {
     log.info('Restream', 'Access token expired, refreshing...');
-    if (tokens.refreshToken && isTokenValid(tokens.refreshTokenExpiresEpoch)) {
+    if (tokens.refreshToken && (tokens.refreshTokenExpiresEpoch == null || isTokenValid(tokens.refreshTokenExpiresEpoch))) {
       try {
         const newTokens = await refreshRestreamTokens(tokens.refreshToken);
         if (newTokens) {
