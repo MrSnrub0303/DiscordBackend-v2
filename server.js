@@ -2995,17 +2995,32 @@ async function saveEventsData(data) {
   await fs.writeFile(EVENTS_DATA_PATH, JSON.stringify(data, null, 2), "utf-8");
 }
 
-// Tournament window (Unix timestamps matching the event date range)
-const TOURNAMENT_START = new Date(1775174400 * 1000); // ~2026-04-01
-const TOURNAMENT_END   = new Date(1775952000 * 1000); // ~2026-04-10
+// ── Archived: GGplz Challenge – 3v3 Ranked Grind (Apr 1–10 2026) ──────────────
+// Metric: total qualifying wins (3v3 ranked wins with elo gain >= 5 in window)
+// const TOURNAMENT_START = new Date(1775174400 * 1000); // 2026-04-01 00:00 UTC
+// const TOURNAMENT_END   = new Date(1775952000 * 1000); // 2026-04-10 00:00 UTC
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GGplz Challenge – Spring Rabbit Hunt (Apr 14 2026 → May 1 2026 10:00 PM PST)
+// End time note: "10:00 PM PST" = UTC-8 → May 2 2026 06:00 UTC.
+// (If PDT/UTC-7 was intended, change end timestamp to 1777697400.)
+const TOURNAMENT_START = new Date(1776124800 * 1000); // 2026-04-14 00:00 UTC
+const TOURNAMENT_END   = new Date(1777701600 * 1000); // 2026-05-02 06:00 UTC (May 1 10 PM PST)
 
 async function fetchPlayerWins(playerId) {
-  // freefoodparty API — no CORS issues when called server-side
-  // gameMode=2 = 3v3 Supremacy; paginate until we're past the tournament window
+  // Returns the highest win streak the player achieved during the tournament window.
+  //
+  // Streak rules (3v3 ranked only):
+  //   Valid win (elo gain >= 5) → +1 streak
+  //   Win with elo gain  < 5   → ignored (streak unchanged)
+  //   Loss                     → streak reset to 0
+  //
+  // Games are fetched newest-first, collected for the window, then processed
+  // oldest-first so streak progression is chronologically correct.
   const pid = String(playerId);
   const size = 50;
   let page = 0;
-  let qualifyingWins = 0;
+  const windowGames = [];
 
   while (true) {
     const url =
@@ -3042,19 +3057,36 @@ async function fetchPlayerWins(playerId) {
       );
       if (!entry) continue;
 
-      // Must be a win
-      if (entry.result !== 1) continue;
-
-      // Qualifying win: elo gained >= 5
-      const eloGain = (entry.eloAfter || 0) - (entry.eloBefore || 0);
-      if (eloGain >= 5) qualifyingWins++;
+      windowGames.push({ startDate, entry });
     }
 
     if (passedWindowStart || games.length < size) break;
     page++;
   }
 
-  return qualifyingWins;
+  // Sort oldest-first so we process streak chronologically
+  windowGames.sort((a, b) => a.startDate - b.startDate);
+
+  let currentStreak = 0;
+  let bestStreak = 0;
+
+  for (const { entry } of windowGames) {
+    if (entry.result === 1) {
+      // Win — check elo gain
+      const eloGain = (entry.eloAfter || 0) - (entry.eloBefore || 0);
+      if (eloGain >= 5) {
+        // Qualifying win: extend the streak
+        currentStreak++;
+        if (currentStreak > bestStreak) bestStreak = currentStreak;
+      }
+      // Sub +5 elo win: ignored — no change to streak
+    } else {
+      // Loss: reset streak
+      currentStreak = 0;
+    }
+  }
+
+  return bestStreak;
 }
 
 // GET /events/leaderboard
