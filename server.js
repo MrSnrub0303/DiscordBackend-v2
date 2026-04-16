@@ -358,11 +358,17 @@ app.post("/api/token", async (req, res) => exchangeDiscordCode(req, res, 'API'))
 
 app.post("/token", async (req, res) => exchangeDiscordCode(req, res, '/token'));
 
-app.get("/api/health", (req, res) => {
+app.get("/api/health", async (req, res) => {
+  let publicIp = null;
+  try {
+    const ipResp = await fetch("https://api.ipify.org?format=json");
+    publicIp = (await ipResp.json()).ip;
+  } catch {}
   res.json({
     status: "healthy",
     server: "quiz-backend",
     timestamp: new Date().toISOString(),
+    publicIp,
   });
 });
 
@@ -381,12 +387,17 @@ app.get("/api/test-discord", async (req, res) => {
     const text = await testResp.text();
     console.log('[Test] Response preview:', text.substring(0, 200));
     
+    const isBlocked = testResp.status === 429 || !testResp.headers.get('content-type')?.includes('application/json');
     res.json({
-      success: true,
+      success: !isBlocked,
+      blocked: isBlocked,
       status: testResp.status,
       contentType: testResp.headers.get('content-type'),
-      preview: text.substring(0, 200),
-      canReachDiscord: testResp.status === 200
+      preview: isBlocked ? text.substring(0, 200) : undefined,
+      canReachDiscord: !isBlocked,
+      message: isBlocked
+        ? 'Discord API is rate-limiting this server\'s IP. Try again later.'
+        : 'Discord API is reachable.',
     });
   } catch (err) {
     console.error('[Test] Failed:', err.message);
