@@ -52,6 +52,34 @@ const cleanCodeExchangeCache = () => {
 
 setInterval(cleanCodeExchangeCache, CODE_CACHE_TTL_MS);
 
+// Cache Discord token validation results to avoid hitting discord.com/api/users/@me
+// on every socket.io connection/reconnection (e.g. network blips).
+// TTL of 5 minutes — tokens are valid for much longer, so this is safe.
+const TOKEN_VALIDATION_TTL_MS = 5 * 60 * 1000;
+const tokenValidationCache = new Map();
+
+const getCachedTokenUser = (token) => {
+  const entry = tokenValidationCache.get(token);
+  if (entry && Date.now() - entry.timestamp < TOKEN_VALIDATION_TTL_MS) {
+    return entry.user;
+  }
+  tokenValidationCache.delete(token);
+  return null;
+};
+
+const setCachedTokenUser = (token, user) => {
+  tokenValidationCache.set(token, { user, timestamp: Date.now() });
+};
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of tokenValidationCache.entries()) {
+    if (now - entry.timestamp > TOKEN_VALIDATION_TTL_MS) {
+      tokenValidationCache.delete(token);
+    }
+  }
+}, TOKEN_VALIDATION_TTL_MS);
+
 const ROOM_CLEANUP_INTERVAL = 1000 * 60 * 5;
 const ROOM_INACTIVE_THRESHOLD = 1000 * 60 * 15;
 const GRACE_PERIOD_MAX = 1000 * 10;
@@ -2528,12 +2556,16 @@ io.use(async (socket, next) => {
 
     socket.data.reconnecting = reconnecting;
 
-    const resp = await fetch("https://discord.com/api/users/@me", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (!resp.ok) return next(new Error("Invalid Discord token"));
-    const user = await resp.json();
+    // Use cached user if token was validated recently (avoids hammering Discord API on reconnects)
+    let user = getCachedTokenUser(token);
+    if (!user) {
+      const resp = await fetch("https://discord.com/api/users/@me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) return next(new Error("Invalid Discord token"));
+      user = await resp.json();
+      setCachedTokenUser(token, user);
+    }
 
     socket.data.user = user;
     socket.data.channelId = channelId;
