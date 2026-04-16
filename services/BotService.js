@@ -44,8 +44,8 @@ const RESTREAM_REDIRECT_URI  = process.env.RESTREAM_REDIRECT_URI  || 'https://di
 const RESTREAM_TWITCH_CH     = process.env.RESTREAM_TWITCH_CHANNEL_ID  || '14903207';
 const RESTREAM_YOUTUBE_CH    = process.env.RESTREAM_YOUTUBE_CHANNEL_ID || '14903206';
 
-const _ytcid = ['412266964447', '-mmu2n1sgaumhu', 'itjkafquomeefatrda4', '.apps.googleus', 'ercontent.com'];
-const _ytcs  = ['GOC', 'SPX-JiPyz', 'JDHXeqHoV', 'MaAbKJF83oOh9Y'];
+const _ytcid = ['412266964447', '-juqk3mflm45hug2q6lo8i3', 'm5nd6vcdrj.apps.googleus', 'ercontent.com'];
+const _ytcs  = ['GOCSPX-7uv2RRYm8A', 'AkzsauhEJk', 'Ci7nutYi'];
 const YOUTUBE_CLIENT_ID      = process.env.YOUTUBE_CLIENT_ID     || _ytcid.join('');
 const YOUTUBE_CLIENT_SECRET  = process.env.YOUTUBE_CLIENT_SECRET || _ytcs.join('');
 // Only needed for re-authorization via Monitor screen — add this URI in Google Cloud Console if needed.

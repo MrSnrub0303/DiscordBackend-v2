@@ -3496,8 +3496,20 @@ app.get("/api/monitor/auth/youtube/callback", async (req, res) => {
     return res.send(`<h2>YouTube auth failed: ${error || "no code"}</h2>`);
   }
   try {
-    await BotService.exchangeYouTubeCode(String(code));
-    res.send("<h2>YouTube connected! You can close this tab.</h2>");
+    const tokens = await BotService.exchangeYouTubeCode(String(code));
+    const refreshToken = tokens?.refresh_token;
+    if (!refreshToken) {
+      return res.send(`<h2>YouTube connected!</h2><p>No refresh token returned — Google only issues a refresh token on first authorization. If you need a new one, revoke access at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a> and re-authorize.</p>`);
+    }
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>YouTube Connected</title></head>
+<body style="font-family:sans-serif;background:#1a1a2e;color:#e2e8f0;padding:40px;max-width:600px;margin:auto">
+<h2 style="color:#22c55e">✓ YouTube Connected!</h2>
+<p>Save this as a Render environment variable so it survives redeploys:</p>
+<p><b>Key:</b> <code style="background:#333;padding:2px 6px">YOUTUBE_REFRESH_TOKEN</code></p>
+<p><b>Value:</b></p>
+<textarea rows="3" style="width:100%;background:#333;color:#fff;border:1px solid #555;padding:8px;font-family:monospace" onclick="this.select()">${refreshToken}</textarea>
+<p style="color:#94a3b8;font-size:0.85em">Once saved in Render, this token will be used automatically on every restart. You can close this tab.</p>
+</body></html>`);
   } catch (err) {
     res.send(`<h2>YouTube auth error: ${err.message}</h2>`);
   }
