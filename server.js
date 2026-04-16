@@ -388,11 +388,22 @@ app.get("/api/test-discord", async (req, res) => {
     console.log('[Test] Response preview:', text.substring(0, 200));
     
     const isBlocked = testResp.status === 429 || !testResp.headers.get('content-type')?.includes('application/json');
+
+    // Capture all headers for diagnosis
+    const headers = {};
+    testResp.headers.forEach((value, key) => { headers[key] = value; });
+
+    const retryAfter = testResp.headers.get('retry-after');
+    const retryAfterSeconds = retryAfter ? parseFloat(retryAfter) : null;
+
     res.json({
       success: !isBlocked,
       blocked: isBlocked,
       status: testResp.status,
       contentType: testResp.headers.get('content-type'),
+      retryAfter: retryAfterSeconds,
+      retryAfterHuman: retryAfterSeconds ? `${Math.ceil(retryAfterSeconds / 60)} minutes` : null,
+      headers,
       preview: isBlocked ? text.substring(0, 200) : undefined,
       canReachDiscord: !isBlocked,
       message: isBlocked
