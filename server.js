@@ -253,6 +253,62 @@ async function exchangeDiscordCode(req, res, label) {
     code,
   });
 
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 1000;
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const attemptExchange = async (attempt) => {
+    const resp = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+
+    console.log(`[Token ${label}] Attempt ${attempt} response status:`, resp.status);
+    console.log(`[Token ${label}] Response content-type:`, resp.headers.get('content-type'));
+
+    // Rate limited — respect Retry-After header or use exponential backoff
+    if (resp.status === 429) {
+      const retryAfter = resp.headers.get('retry-after');
+      const waitMs = retryAfter
+        ? parseFloat(retryAfter) * 1000
+        : BASE_DELAY_MS * Math.pow(2, attempt - 1);
+      console.warn(`[Token ${label}] Rate limited (429), waiting ${waitMs}ms before retry...`);
+      if (attempt < MAX_RETRIES) {
+        await sleep(waitMs);
+        return attemptExchange(attempt + 1);
+      }
+      throw Object.assign(new Error('Discord rate limit exceeded after retries'), { status: 429, isRateLimit: true });
+    }
+
+    const contentType = resp.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const textResponse = await resp.text();
+      console.error(`[Token ${label}] Non-JSON response (status ${resp.status}):`, textResponse.substring(0, 200));
+      // Retry on 5xx or unexpected HTML (e.g. Cloudflare error pages)
+      if (resp.status >= 500 && attempt < MAX_RETRIES) {
+        const waitMs = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        console.warn(`[Token ${label}] Server error, retrying in ${waitMs}ms...`);
+        await sleep(waitMs);
+        return attemptExchange(attempt + 1);
+      }
+      const err = Object.assign(new Error('Invalid response from Discord API'), {
+        status: resp.status,
+        bodyPreview: textResponse.substring(0, 200),
+      });
+      throw err;
+    }
+
+    const json = await resp.json();
+    if (!resp.ok) {
+      console.error(`[Token ${label}] Discord API error:`, json);
+      throw Object.assign(new Error('Discord API error'), { status: resp.status, body: json });
+    }
+
+    return json;
+  };
+
   try {
     console.log(`[Token ${label}] Starting token exchange...`);
     console.log(`[Token ${label}] Code length:`, code?.length);
@@ -265,48 +321,35 @@ async function exchangeDiscordCode(req, res, label) {
 
     console.log(`[Token ${label}] Making request to Discord API...`);
 
-    const resp = await fetch("https://discord.com/api/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
-    });
-
-    console.log(`[Token ${label}] Response status:`, resp.status);
-    console.log(`[Token ${label}] Response content-type:`, resp.headers.get('content-type'));
-
-    const contentType = resp.headers.get('content-type');
-
-    if (!contentType || !contentType.includes('application/json')) {
-      const textResponse = await resp.text();
-      console.error(`[Token ${label}] Non-JSON response:`, textResponse.substring(0, 200));
-      finalizeCodeExchange(code, 'done');
-      return res.status(502).json({ 
-        error: "Invalid response from Discord API",
-        details: "Expected JSON but received HTML. Network or proxy issue.",
-        status: resp.status,
-        bodyPreview: textResponse.substring(0, 200),
-      });
-    }
-
-    const json = await resp.json();
-
-    if (!resp.ok) {
-      console.error(`[Token ${label}] Discord API error:`, json);
-      finalizeCodeExchange(code, 'done');
-      return res.status(resp.status).json(json);
-    }
-
+    const json = await attemptExchange(1);
     console.log(`[Token ${label}] Success`);
     finalizeCodeExchange(code, 'done');
     return res.json(json);
   } catch (err) {
     console.error(`[Token ${label}] Exception:`, err.message);
-    console.error(`[Token ${label}] Stack:`, err.stack);
     releaseCodeExchange(code); // allow retry on transient failure
-    return res.status(500).json({ 
-      error: "Internal server error", 
+
+    if (err.isRateLimit) {
+      return res.status(429).json({
+        error: "Discord rate limit exceeded",
+        details: "The server was rate limited by Discord. Please wait a moment and try again.",
+      });
+    }
+    if (err.status && err.body) {
+      return res.status(err.status).json(err.body);
+    }
+    if (err.status === 502 || (err.bodyPreview !== undefined)) {
+      return res.status(502).json({
+        error: "Invalid response from Discord API",
+        details: "Expected JSON but received HTML. Network or proxy issue.",
+        status: err.status,
+        bodyPreview: err.bodyPreview,
+      });
+    }
+    return res.status(500).json({
+      error: "Internal server error",
       details: err.message,
-      type: err.name 
+      type: err.name,
     });
   }
 }
