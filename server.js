@@ -3367,23 +3367,24 @@ async function isMonitorAuthorized(req) {
 // Ranked – queue & ongoing
 // ─────────────────────────────────────────────────────────────────
 
-// GET /api/ranked/queue — SESSION_MATCH_KEY parties currently searching
-app.get("/api/ranked/queue", (_req, res) => {
-  res.json(RankedQueueService.getQueue());
-});
+// Ranked endpoints — registered both WITH and WITHOUT /api/ prefix
+// because the Discord Activity proxy strips /api/ before hitting the server
 
-// POST /api/ranked/steam-guard — submit Steam Guard code from the in-app UI
-app.post("/api/ranked/steam-guard", (req, res) => {
+const rankedQueueHandler = (_req, res) => res.json(RankedQueueService.getQueue());
+app.get("/api/ranked/queue", rankedQueueHandler);
+app.get("/ranked/queue",     rankedQueueHandler);
+
+const steamGuardHandler = (req, res) => {
   const { code } = req.body || {};
   if (!code || typeof code !== 'string' || !code.trim()) {
     return res.status(400).json({ success: false, error: 'Missing code' });
   }
-  const result = RankedQueueService.submitGuardCode(code);
-  res.json(result);
-});
+  res.json(RankedQueueService.submitGuardCode(code));
+};
+app.post("/api/ranked/steam-guard", steamGuardHandler);
+app.post("/ranked/steam-guard",     steamGuardHandler);
 
-// GET /api/ranked/ongoing — active AUTOMATCH matches from freefoodparty proxy
-app.get("/api/ranked/ongoing", async (_req, res) => {
+const ongoingHandler = async (_req, res) => {
   try {
     const axios = require("axios");
     const r = await axios.get("https://api.freefoodparty.com/observablelist_all", { timeout: 8000 });
@@ -3415,7 +3416,9 @@ app.get("/api/ranked/ongoing", async (_req, res) => {
   } catch (e) {
     res.status(502).json({ success: false, error: e.message });
   }
-});
+};
+app.get("/api/ranked/ongoing", ongoingHandler);
+app.get("/ranked/ongoing",     ongoingHandler);
 
 // GET /api/monitor/status — public (UI is already gated; status data isn't sensitive)
 app.get("/api/monitor/status", (_req, res) => {
