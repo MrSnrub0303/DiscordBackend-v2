@@ -30,24 +30,26 @@ const SESSION_TTL  = 25 * 60 * 1000;
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 
-let steamSession       = null;
-let knownSessions      = new Map();
-let lastMaxId          = 0;
-let cachedResult       = null;
-let pollInProgress     = false;
-let sentryToken        = null;   // machine auth token persisted across re-auths
+let steamSession   = null;
+let knownSessions  = new Map();
+let lastMaxId      = 0;
+let cachedResult   = null;
+let pollInProgress = false;
+let sentryToken    = null;   // machine auth token — avoids Guard within same process
 
-// Steam Guard pending state
-let guardPendingCallback = null; // the callback steam-user gave us
-let guardNeeded          = false;
+// Steam Guard state
+let guardNeeded    = false;  // true → UI should show code prompt
+let pendingCode    = null;   // code submitted via the app, consumed on next login attempt
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 async function getSteamSession() {
   if (steamSession && Date.now() < steamSession.expiresAt) return steamSession;
+  if (guardNeeded && !pendingCode) throw new Error('needs_guard_code');
 
   return new Promise((resolve, reject) => {
     const client = new SteamUser();
+    let guardFired = false;
 
     const logonOpts = {
       accountName: process.env.STEAM_USERNAME,
@@ -57,24 +59,32 @@ async function getSteamSession() {
 
     client.logOn(logonOpts);
 
-    // Steam Guard fired — store the callback, expose status to the UI
     client.on('steamGuard', (domain, callback, lastCodeWrong) => {
-      console.log(`[RankedQueue] Steam Guard required (domain=${domain || 'mobile'}, wrong=${lastCodeWrong})`);
-      guardPendingCallback = callback;
-      guardNeeded          = true;
-      // Don't reject — just wait. The /api/ranked/steam-guard endpoint will call submitGuardCode().
+      guardFired = true;
+      if (pendingCode) {
+        // We have a code from the UI — use it immediately
+        console.log(`[RankedQueue] Providing submitted Guard code (domain=${domain || 'mobile'})`);
+        const code = pendingCode;
+        pendingCode = null;
+        callback(code);
+      } else {
+        // No code available — abort this login and signal the UI
+        console.log(`[RankedQueue] Steam Guard required (domain=${domain || 'mobile'}) — waiting for code from app`);
+        guardNeeded = true;
+        client.logOff();
+        reject(new Error('needs_guard_code'));
+      }
     });
 
-    // Machine auth token — save in memory so restarts within the same Render dyno lifetime skip Guard
     client.on('machineAuthToken', token => {
       sentryToken = token;
-      guardNeeded = false;
-      console.log('[RankedQueue] Machine auth token saved — Guard not needed for this process lifetime');
+      console.log('[RankedQueue] Machine auth token saved — Guard skipped for this process lifetime');
     });
 
     client.on('loggedOn', async () => {
-      guardNeeded          = false;
-      guardPendingCallback = null;
+      // If Guard fired but we didn't provide a code (shouldn't happen, but guard against it)
+      if (guardFired && guardNeeded) { client.logOff(); return; }
+      guardNeeded = false;
       try {
         const { encryptedAppTicket } = await client.createEncryptedAppTicket(APP_ID, Buffer.from('RLINK'));
         const auth = encodeURIComponent(encryptedAppTicket.toString('base64'));
@@ -94,7 +104,6 @@ async function getSteamSession() {
 
         const sid     = Array.isArray(r.data) && typeof r.data[1] === 'string' ? r.data[1] : null;
         const cookies = (r.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
-
         if (!sid) throw new Error('Could not extract sessionID from Relic login');
 
         client.logOff();
@@ -107,7 +116,7 @@ async function getSteamSession() {
       }
     });
 
-    client.on('error', e => reject(new Error(`Steam login error: ${e.message}`)));
+    client.on('error', e => reject(new Error(`Steam login: ${e.message}`)));
   });
 }
 
@@ -164,14 +173,11 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function poll() {
   if (pollInProgress) return;
-  if (guardNeeded)    return; // waiting for user to submit Guard code — skip poll
+  if (guardNeeded && !pendingCode) return; // waiting for Guard code from UI
   pollInProgress = true;
 
   try {
     const { sid, cookies } = await getSteamSession();
-
-    // If getSteamSession triggered Guard, it will just be pending — bail gracefully
-    if (guardNeeded) return;
 
     const now = Date.now();
     const commR      = await axios.get(`${BASE_URL}/community/advertisement/findAdvertisements?title=age3`);
@@ -245,7 +251,11 @@ async function poll() {
     cachedResult = { timestamp: new Date().toISOString(), parties };
     console.log(`[RankedQueue] Poll complete: ${parties.length} parties, ${allProfileIds.length} players`);
   } catch (e) {
-    console.error('[RankedQueue] Poll error:', e.message);
+    if (e.message === 'needs_guard_code') {
+      console.log('[RankedQueue] Waiting for Steam Guard code from app UI');
+    } else {
+      console.error('[RankedQueue] Poll error:', e.message);
+    }
   } finally {
     pollInProgress = false;
   }
@@ -274,13 +284,12 @@ function getQueue() {
 
 /** Called by POST /api/ranked/steam-guard when the user submits the code from the app */
 function submitGuardCode(code) {
-  if (!guardPendingCallback) return { success: false, error: 'No Steam Guard prompt pending' };
-  const cb = guardPendingCallback;
-  guardPendingCallback = null;
-  guardNeeded          = false;
-  cb(code.trim());
-  // Trigger a poll now that auth can proceed
-  setTimeout(poll, 1000);
+  if (!guardNeeded) return { success: false, error: 'No Steam Guard prompt is currently pending' };
+  pendingCode  = code.trim();
+  guardNeeded  = false;
+  steamSession = null; // force a fresh login attempt using the code
+  console.log('[RankedQueue] Guard code received — retrying login');
+  setTimeout(poll, 500);
   return { success: true };
 }
 
