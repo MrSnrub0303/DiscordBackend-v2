@@ -9,6 +9,7 @@ const multer = require("multer");
 const StorageService = require("./services/StorageService");
 const BotService = require("./services/BotService");
 const LogBuffer = require("./services/LogBuffer");
+const RankedQueueService = require("./services/RankedQueueService");
 const fs = require("fs").promises;
 const fsSync = require("fs");
 const path = require("path");
@@ -3362,6 +3363,50 @@ async function isMonitorAuthorized(req) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// Ranked – queue & ongoing
+// ─────────────────────────────────────────────────────────────────
+
+// GET /api/ranked/queue — SESSION_MATCH_KEY parties currently searching
+app.get("/api/ranked/queue", (_req, res) => {
+  res.json(RankedQueueService.getQueue());
+});
+
+// GET /api/ranked/ongoing — active AUTOMATCH matches from freefoodparty proxy
+app.get("/api/ranked/ongoing", async (_req, res) => {
+  try {
+    const axios = require("axios");
+    const r = await axios.get("https://api.freefoodparty.com/observablelist_all", { timeout: 8000 });
+    const all = r.data?.observableMatchInfo ?? [];
+    const automatch = all
+      .filter(m => m.gameName === "AUTOMATCH")
+      .map(m => {
+        const players = (m.obeservableMatchPlayerInfo ?? []).map(p => ({
+          profileId: p.idPlayer,
+          name:      p.name,
+          elo:       p.elo >= 0 ? p.elo : null,
+          civ:       p.idCiv,
+          team:      p.team,
+        }));
+        const elos = players.map(p => p.elo).filter(e => e !== null);
+        const avgElo = elos.length ? Math.round(elos.reduce((a, b) => a + b, 0) / elos.length) : 0;
+        return {
+          matchId:    m.idGame,
+          region:     m.region,
+          playerCount: m.playerCount,
+          startDate:  m.startDate,
+          spectators: m.spectators ?? 0,
+          avgElo,
+          players,
+        };
+      })
+      .sort((a, b) => b.avgElo - a.avgElo);
+    res.json({ success: true, matches: automatch, timestamp: new Date().toISOString() });
+  } catch (e) {
+    res.status(502).json({ success: false, error: e.message });
+  }
+});
+
 // GET /api/monitor/status — public (UI is already gated; status data isn't sensitive)
 app.get("/api/monitor/status", (_req, res) => {
   res.json(BotService.getStatus());
@@ -3522,5 +3567,7 @@ app.get("/api/monitor/auth/youtube/callback", async (req, res) => {
 BotService.start().catch((err) =>
   LogBuffer.error("BotService", `Startup error: ${err.message}`)
 );
+
+RankedQueueService.start();
 
 server.listen(PORT, () => {});
