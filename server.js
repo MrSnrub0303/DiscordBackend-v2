@@ -3372,6 +3372,16 @@ app.get("/api/ranked/queue", (_req, res) => {
   res.json(RankedQueueService.getQueue());
 });
 
+// POST /api/ranked/steam-guard — submit Steam Guard code from the in-app UI
+app.post("/api/ranked/steam-guard", (req, res) => {
+  const { code } = req.body || {};
+  if (!code || typeof code !== 'string' || !code.trim()) {
+    return res.status(400).json({ success: false, error: 'Missing code' });
+  }
+  const result = RankedQueueService.submitGuardCode(code);
+  res.json(result);
+});
+
 // GET /api/ranked/ongoing — active AUTOMATCH matches from freefoodparty proxy
 app.get("/api/ranked/ongoing", async (_req, res) => {
   try {
