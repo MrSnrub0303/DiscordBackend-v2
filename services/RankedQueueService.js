@@ -26,11 +26,12 @@ const SESSION_TTL   = 25 * 60 * 1000;  // renew Steam session every 25 min
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 
-let steamSession = null;           // { sid, cookies, expiresAt }
-let knownSessions = new Map();     // lobbyId → { firstSeen, lastSeen, data }
+let steamSession  = null;          // { sid, cookies, expiresAt }
+let knownSessions = new Map();     // lobbyId → { firstSeen, data }
 let lastMaxId     = 0;
 let cachedResult  = null;          // { timestamp, parties }
 let pollInProgress = false;
+let sentryToken   = null;          // persisted in-memory across re-auths to avoid repeated Guard prompts
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -39,9 +40,38 @@ async function getSteamSession() {
 
   return new Promise((resolve, reject) => {
     const client = new SteamUser();
-    client.logOn({
+
+    // Persist machine auth token in memory so Guard isn't re-prompted within the same process lifetime
+    if (sentryToken) {
+      client.on('machineAuthToken', token => { sentryToken = token; });
+    }
+
+    // Use sentry from previous successful login if available
+    const logonOpts = {
       accountName: process.env.STEAM_USERNAME,
       password:    process.env.STEAM_PASSWORD,
+    };
+    if (sentryToken) logonOpts.machineAuthToken = sentryToken;
+
+    client.logOn(logonOpts);
+
+    // Handle Steam Guard — reads from STEAM_GUARD_CODE env var (set once on Render, then cleared)
+    client.on('steamGuard', (domain, callback, lastCodeWrong) => {
+      const code = process.env.STEAM_GUARD_CODE || '';
+      if (!code) {
+        console.error('[RankedQueue] Steam Guard required but STEAM_GUARD_CODE env var is not set');
+        client.logOff();
+        reject(new Error('Steam Guard code required — set STEAM_GUARD_CODE env var on Render'));
+        return;
+      }
+      console.log(`[RankedQueue] Providing Steam Guard code from env (domain=${domain || 'mobile'}, wrong=${lastCodeWrong})`);
+      callback(code.trim());
+    });
+
+    // Save machine auth token so subsequent re-auths within this process don't need Guard
+    client.on('machineAuthToken', token => {
+      sentryToken = token;
+      console.log('[RankedQueue] Machine auth token saved — Guard not needed until process restart');
     });
 
     client.on('loggedOn', async () => {
