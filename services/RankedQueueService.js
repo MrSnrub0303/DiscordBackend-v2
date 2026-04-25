@@ -30,12 +30,13 @@ const SESSION_TTL  = 25 * 60 * 1000;
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 
-let steamSession   = null;
-let knownSessions  = new Map();
-let lastMaxId      = 0;
-let cachedResult   = null;
-let pollInProgress = false;
-let sentryToken    = null;   // machine auth token — avoids Guard within same process
+let steamSession      = null;
+let knownSessions     = new Map();
+let lastMaxId         = 0;
+let cachedResult      = null;
+let pollInProgress    = false;
+let sentryToken       = null;   // machine auth token — avoids Guard within same process
+let consecutiveErrors = 0;
 
 // Steam Guard state
 let guardNeeded    = false;  // true → UI should show code prompt
@@ -249,12 +250,27 @@ async function poll() {
     });
 
     cachedResult = { timestamp: new Date().toISOString(), parties };
+    consecutiveErrors = 0;
     console.log(`[RankedQueue] Poll complete: ${parties.length} parties, ${allProfileIds.length} players`);
   } catch (e) {
     if (e.message === 'needs_guard_code') {
       console.log('[RankedQueue] Waiting for Steam Guard code from app UI');
     } else {
-      console.error('[RankedQueue] Poll error:', e.message);
+      consecutiveErrors++;
+      console.error(`[RankedQueue] Poll error (${consecutiveErrors}):`, e.message);
+
+      // 401 = Relic session expired — invalidate immediately so next poll re-authenticates
+      if (e.response?.status === 401 || e.message?.includes('401')) {
+        console.log('[RankedQueue] 401 received — clearing Steam session for immediate re-auth');
+        steamSession = null;
+      }
+
+      // After 3 consecutive failures clear the cache so stale data isn't shown indefinitely
+      if (consecutiveErrors >= 3) {
+        cachedResult = null;
+        knownSessions.clear();
+        console.log('[RankedQueue] Cache cleared after repeated failures');
+      }
     }
   } finally {
     pollInProgress = false;
