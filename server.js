@@ -3384,6 +3384,31 @@ const steamGuardHandler = (req, res) => {
 app.post("/api/ranked/steam-guard", steamGuardHandler);
 app.post("/ranked/steam-guard",     steamGuardHandler);
 
+// GET /ranked/find-player?alias=NAME — look up a player's ELO by in-game name
+const findPlayerHandler = async (req, res) => {
+  const alias = (req.query.alias || '').trim();
+  if (!alias) return res.status(400).json({ found: false, error: 'Missing alias' });
+  try {
+    const axios = require('axios');
+    const BASE = 'https://aoe-api.worldsedgelink.com';
+    // Search by alias
+    const r = await axios.get(`${BASE}/community/leaderboard/getPersonalStat?title=age3&alias=${encodeURIComponent(alias)}&count=5`);
+    const groups = r.data?.statGroups ?? [];
+    const match = groups.find(g => g.members?.some(m => m.alias?.toLowerCase() === alias.toLowerCase()));
+    if (!match) return res.json({ found: false });
+    const profileId = match.members[0].profile_id;
+    const sgId = match.id;
+    const stats = r.data?.leaderboardStats ?? [];
+    const lb1 = stats.find(s => s.statgroup_id === sgId && s.leaderboard_id === 1);
+    const lb2 = stats.find(s => s.statgroup_id === sgId && s.leaderboard_id === 2);
+    res.json({ found: true, alias: match.members[0].alias, profileId, soloElo: lb1?.rating ?? null, teamElo: lb2?.rating ?? null });
+  } catch (e) {
+    res.status(502).json({ found: false, error: e.message });
+  }
+};
+app.get('/api/ranked/find-player', findPlayerHandler);
+app.get('/ranked/find-player',     findPlayerHandler);
+
 const ongoingHandler = async (_req, res) => {
   try {
     const axios = require("axios");
