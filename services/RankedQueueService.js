@@ -10,7 +10,7 @@
  * accepts the code and resolves the callback — no env vars or redeploys needed.
  *
  * Rate limit:  max ~15 API calls per 30 s poll (well under the 50/30 s ceiling).
- * Ghost-lobby cap: 8 minutes (after 7.5 min players get force-matched anyway).
+ * Ghost-lobby cap: 10 minutes. Deduplication runs after, so most recent session always wins.
  * Session cache: Steam auth renewed every 25 minutes automatically.
  */
 
@@ -22,7 +22,7 @@ const BASE_URL = 'https://aoe-api.worldsedgelink.com';
 const ABC      = '-565431487';   // appBinaryChecksum – patch 100.15.59076.0
 const DC       = '157255947';   // dataChecksum      – patch 100.15.59076.0
 
-const GHOST_CAP_MS = 8 * 60 * 1000;
+const GHOST_CAP_MS = 10 * 60 * 1000;
 const SCAN_BACK    = 500;
 const BATCH_SIZE   = 50;
 const CACHE_TTL_MS = 30_000;
