@@ -3389,19 +3389,22 @@ const findPlayerHandler = async (req, res) => {
   const alias = (req.query.alias || '').trim();
   if (!alias) return res.status(400).json({ found: false, error: 'Missing alias' });
   try {
-    const axios = require('axios');
-    const BASE = 'https://aoe-api.worldsedgelink.com';
-    // Search by alias
-    const r = await axios.get(`${BASE}/community/leaderboard/getPersonalStat?title=age3&alias=${encodeURIComponent(alias)}&count=5`);
-    const groups = r.data?.statGroups ?? [];
-    const match = groups.find(g => g.members?.some(m => m.alias?.toLowerCase() === alias.toLowerCase()));
+    // Step 1: find profile_id via freefoodparty leaderboard (same as events register)
+    const lb = await fetch('https://api.freefoodparty.com/player/leaderboard?gameMode=2', { headers: { Accept: 'application/json' } });
+    const leaderboard = await lb.json();
+    const match = Array.isArray(leaderboard) && leaderboard.find(p => p.name?.toLowerCase() === alias.toLowerCase());
     if (!match) return res.json({ found: false });
-    const profileId = match.members[0].profile_id;
-    const sgId = match.id;
+
+    // Step 2: fetch ELO from Relic using the profile_id
+    const profileId = match.idPlayer;
+    const axios = require('axios');
+    const r = await axios.get(`https://aoe-api.worldsedgelink.com/community/leaderboard/getPersonalStat?title=age3&profile_ids=[${profileId}]`);
     const stats = r.data?.leaderboardStats ?? [];
+    const groups = r.data?.statGroups ?? [];
+    const sgId = groups[0]?.id;
     const lb1 = stats.find(s => s.statgroup_id === sgId && s.leaderboard_id === 1);
     const lb2 = stats.find(s => s.statgroup_id === sgId && s.leaderboard_id === 2);
-    res.json({ found: true, alias: match.members[0].alias, profileId, soloElo: lb1?.rating ?? null, teamElo: lb2?.rating ?? null });
+    res.json({ found: true, alias: match.name, profileId, soloElo: lb1?.rating ?? null, teamElo: lb2?.rating ?? null });
   } catch (e) {
     res.status(502).json({ found: false, error: e.message });
   }
