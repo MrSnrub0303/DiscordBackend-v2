@@ -224,10 +224,22 @@ async function poll() {
     lastMaxId = currentMax;
 
     const activeSessions = [...knownSessions.values()].map(s => s.data);
-    const allProfileIds  = [...new Set(activeSessions.flatMap(m => (m[17] || []).map(p => p[1])))];
+
+    // Deduplicate: if a player appears in multiple sessions keep only their most recent (highest lobbyId)
+    const playerLatest = new Map(); // profileId → highest lobbyId seen
+    activeSessions.forEach(m => {
+      (m[17] || []).forEach(p => {
+        if (!playerLatest.has(p[1]) || m[0] > playerLatest.get(p[1])) playerLatest.set(p[1], m[0]);
+      });
+    });
+    const dedupedSessions = activeSessions.filter(m =>
+      (m[17] || []).every(p => playerLatest.get(p[1]) === m[0])
+    );
+
+    const allProfileIds  = [...new Set(dedupedSessions.flatMap(m => (m[17] || []).map(p => p[1])))];
     const { statMap, profileMap } = await fetchPersonalStats(allProfileIds);
 
-    const parties = activeSessions.map(m => {
+    const parties = dedupedSessions.map(m => {
       const players = (m[17] || []).map(p => {
         const pInfo  = profileMap[p[1]] || {};
         const entries = statMap[pInfo.sgId] ?? [];
