@@ -248,7 +248,7 @@ async function poll() {
         return { profileId: p[1], alias: pInfo.alias || null, country: pInfo.country || null, elo, hasElo: elo !== null };
       });
       const elos    = players.map(p => p.elo).filter(e => e !== null);
-      const teamElo = players.length > 1 && elos.length > 0 ? elos.reduce((a, b) => a + b, 0) : null;
+      const teamElo = players.length > 1 && elos.length > 0 ? Math.round(elos.reduce((a, b) => a + b, 0) / elos.length) : null;
       return {
         lobbyId: m[0], partySize: players.length, region: m[25], teamElo, players,
         firstSeen: knownSessions.get(m[0])?.firstSeen ?? now,
