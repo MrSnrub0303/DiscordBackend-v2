@@ -33,6 +33,7 @@ const SESSION_TTL  = 25 * 60 * 1000;
 
 let steamSession      = null;
 let knownSessions     = new Map();
+let sessionFirstSeen  = new Map(); // lobbyId → original firstSeen; survives ghost deletions
 let lastMaxId         = 0;
 let cachedResult      = null;
 let pollInProgress    = false;
@@ -195,8 +196,12 @@ async function poll() {
     }
 
     newAds.forEach(m => {
+      // Restore the original firstSeen so queue-time display survives ghost deletions
+      const originalFirstSeen = sessionFirstSeen.get(m[0]) ?? now;
+      sessionFirstSeen.set(m[0], originalFirstSeen);
+
       if (!knownSessions.has(m[0])) {
-        knownSessions.set(m[0], { firstSeen: now, lastSeen: now, data: m });
+        knownSessions.set(m[0], { firstSeen: originalFirstSeen, lastSeen: now, data: m });
       } else {
         const s = knownSessions.get(m[0]);
         s.data     = m;
@@ -226,6 +231,11 @@ async function poll() {
 
     for (const [id, session] of knownSessions) {
       if (now - session.firstSeen >= GHOST_CAP_MS) knownSessions.delete(id);
+    }
+
+    // Expire sessionFirstSeen entries that are truly ancient (past the absolute cap)
+    for (const [id, ts] of sessionFirstSeen) {
+      if (now - ts >= GHOST_CAP_MS) sessionFirstSeen.delete(id);
     }
 
     lastMaxId = currentMax;
@@ -288,6 +298,7 @@ async function poll() {
       if (consecutiveErrors >= 3) {
         cachedResult = null;
         knownSessions.clear();
+        sessionFirstSeen.clear();
         console.log('[RankedQueue] Cache cleared after repeated failures');
       }
     }
