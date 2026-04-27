@@ -52,11 +52,20 @@ let pendingCode    = null;   // code submitted via the app, consumed on next log
 // ─── Machine auth token persistence ──────────────────────────────────────────
 
 function loadPersistedToken() {
+  // 1. Environment variable — works on Render and any cloud host
+  const envToken = (process.env.STEAM_MACHINE_AUTH_TOKEN || '').trim();
+  if (envToken) {
+    sentryToken = envToken;
+    console.log('[RankedQueue] Loaded machine auth token from STEAM_MACHINE_AUTH_TOKEN env var — Steam Guard will be skipped');
+    return;
+  }
+
+  // 2. Local file fallback — works in local dev or when using a persistent disk
   try {
-    const token = fs.readFileSync(MACHINE_AUTH_FILE, 'utf8').trim();
-    if (token) {
-      sentryToken = token;
-      console.log('[RankedQueue] Loaded persisted machine auth token — Steam Guard will be skipped');
+    const fileToken = fs.readFileSync(MACHINE_AUTH_FILE, 'utf8').trim();
+    if (fileToken) {
+      sentryToken = fileToken;
+      console.log('[RankedQueue] Loaded machine auth token from file — Steam Guard will be skipped');
     }
   } catch {
     // File doesn't exist yet — first run, Guard code will be required once
@@ -64,12 +73,21 @@ function loadPersistedToken() {
 }
 
 function persistToken(token) {
+  // Write to local file (useful in local dev or with a persistent disk)
   try {
     fs.writeFileSync(MACHINE_AUTH_FILE, token, { encoding: 'utf8', mode: 0o600 });
-    console.log('[RankedQueue] Machine auth token written to disk — Guard will be skipped on future restarts');
   } catch (e) {
-    console.warn('[RankedQueue] Could not persist machine auth token:', e.message);
+    console.warn('[RankedQueue] Could not write machine auth token to file:', e.message);
   }
+
+  // Always log the token prominently so it can be copied into the
+  // STEAM_MACHINE_AUTH_TOKEN environment variable on Render (or any cloud host)
+  console.log('[RankedQueue] ══════════════════════════════════════════════════════════════');
+  console.log('[RankedQueue] Steam Guard accepted. Copy the token below into your');
+  console.log('[RankedQueue] STEAM_MACHINE_AUTH_TOKEN environment variable to skip');
+  console.log('[RankedQueue] Guard prompts on all future restarts:');
+  console.log(`[RankedQueue] ${token}`);
+  console.log('[RankedQueue] ══════════════════════════════════════════════════════════════');
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
