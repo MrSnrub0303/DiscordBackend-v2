@@ -27,7 +27,7 @@ const BASE_URL = 'https://aoe-api.worldsedgelink.com';
 const ABC      = '-565431487';   // appBinaryChecksum – patch 100.15.59076.0
 const DC       = '157255947';   // dataChecksum      – patch 100.15.59076.0
 
-const GHOST_CAP_MS       = 10 * 60 * 1000;
+const GHOST_CAP_MS       = 15 * 60 * 1000;
 const GHOST_THRESHOLD_MS =       90_000; // 3 poll cycles — trust lastSeen over getAdvertisements
 const SCAN_BACK    = 500;
 const BATCH_SIZE   = 50;
