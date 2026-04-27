@@ -16,6 +16,11 @@
 
 const axios     = require('axios');
 const SteamUser = require('steam-user');
+const fs        = require('fs');
+const path      = require('path');
+
+// Persisted machine auth token — survives server restarts so Guard is only needed once
+const MACHINE_AUTH_FILE = path.join(__dirname, '..', '.steam_machine_auth');
 
 const APP_ID   = 933110;
 const BASE_URL = 'https://aoe-api.worldsedgelink.com';
@@ -43,6 +48,29 @@ let consecutiveErrors = 0;
 // Steam Guard state
 let guardNeeded    = false;  // true → UI should show code prompt
 let pendingCode    = null;   // code submitted via the app, consumed on next login attempt
+
+// ─── Machine auth token persistence ──────────────────────────────────────────
+
+function loadPersistedToken() {
+  try {
+    const token = fs.readFileSync(MACHINE_AUTH_FILE, 'utf8').trim();
+    if (token) {
+      sentryToken = token;
+      console.log('[RankedQueue] Loaded persisted machine auth token — Steam Guard will be skipped');
+    }
+  } catch {
+    // File doesn't exist yet — first run, Guard code will be required once
+  }
+}
+
+function persistToken(token) {
+  try {
+    fs.writeFileSync(MACHINE_AUTH_FILE, token, { encoding: 'utf8', mode: 0o600 });
+    console.log('[RankedQueue] Machine auth token written to disk — Guard will be skipped on future restarts');
+  } catch (e) {
+    console.warn('[RankedQueue] Could not persist machine auth token:', e.message);
+  }
+}
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -81,7 +109,7 @@ async function getSteamSession() {
 
     client.on('machineAuthToken', token => {
       sentryToken = token;
-      console.log('[RankedQueue] Machine auth token saved — Guard skipped for this process lifetime');
+      persistToken(token);
     });
 
     client.on('loggedOn', async () => {
@@ -317,6 +345,7 @@ function start() {
     console.warn('[RankedQueue] STEAM_USERNAME/STEAM_PASSWORD not set — ranked queue disabled');
     return;
   }
+  loadPersistedToken();
   poll();
   pollInterval = setInterval(poll, CACHE_TTL_MS);
   console.log('[RankedQueue] Service started (polling every 30s)');
