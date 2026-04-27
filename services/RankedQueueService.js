@@ -22,7 +22,8 @@ const BASE_URL = 'https://aoe-api.worldsedgelink.com';
 const ABC      = '-565431487';   // appBinaryChecksum – patch 100.15.59076.0
 const DC       = '157255947';   // dataChecksum      – patch 100.15.59076.0
 
-const GHOST_CAP_MS = 10 * 60 * 1000;
+const GHOST_CAP_MS       = 10 * 60 * 1000;
+const GHOST_THRESHOLD_MS =       90_000; // 3 poll cycles — trust lastSeen over getAdvertisements
 const SCAN_BACK    = 500;
 const BATCH_SIZE   = 50;
 const CACHE_TTL_MS = 30_000;
@@ -194,15 +195,21 @@ async function poll() {
     }
 
     newAds.forEach(m => {
-      if (!knownSessions.has(m[0])) knownSessions.set(m[0], { firstSeen: now, data: m });
-      else knownSessions.get(m[0]).data = m;
+      if (!knownSessions.has(m[0])) {
+        knownSessions.set(m[0], { firstSeen: now, lastSeen: now, data: m });
+      } else {
+        const s = knownSessions.get(m[0]);
+        s.data     = m;
+        s.lastSeen = now;
+      }
     });
 
     const seenIds = new Set(newAds.map(m => m[0]));
     const toRecheckIds = [];
     for (const [id, session] of knownSessions) {
       if (!seenIds.has(id)) {
-        if (now - session.firstSeen < GHOST_CAP_MS) toRecheckIds.push(id);
+        const age = now - (session.lastSeen ?? session.firstSeen);
+        if (age < GHOST_THRESHOLD_MS) toRecheckIds.push(id);
         else knownSessions.delete(id);
       }
     }
