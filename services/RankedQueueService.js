@@ -31,11 +31,14 @@ const GHOST_CAP_MS = 15 * 60 * 1000;
 const SCAN_BACK    = 500;
 const BATCH_SIZE   = 50;
 const CACHE_TTL_MS = 30_000;
-const SESSION_TTL  = 25 * 60 * 1000;
+const SESSION_TTL  =  3 * 60 * 1000; // 3 min — proactively below the actual ~4-5 min Relic expiry
 
 // ─── In-memory state ─────────────────────────────────────────────────────────
 
 let steamSession      = null;
+let steamClient       = null;  // persistent SteamUser instance — stays connected for process lifetime
+let steamClientReady  = false; // true once loggedOn fires
+let steamClientInit   = null;  // in-flight init Promise — prevents concurrent login races
 let knownSessions     = new Map();
 let sessionFirstSeen  = new Map(); // lobbyId → original firstSeen; survives ghost deletions
 let lastMaxId         = 0;
@@ -91,13 +94,16 @@ function persistToken(token) {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-async function getSteamSession() {
-  if (steamSession && Date.now() < steamSession.expiresAt) return steamSession;
+// Keeps one SteamUser client logged in for the entire process lifetime.
+// Machine auth tokens are only issued on startup (or rare reconnects),
+// so the persisted token stays valid across server restarts.
+async function ensureSteamClient() {
+  if (steamClient && steamClientReady) return; // already up
+  if (steamClientInit) return steamClientInit;  // login already in flight
   if (guardNeeded && !pendingCode) throw new Error('needs_guard_code');
 
-  return new Promise((resolve, reject) => {
+  steamClientInit = new Promise((resolve, reject) => {
     const client = new SteamUser();
-    let guardFired = false;
 
     const logonOpts = {
       accountName: process.env.STEAM_USERNAME,
@@ -105,20 +111,16 @@ async function getSteamSession() {
     };
     if (sentryToken) logonOpts.machineAuthToken = sentryToken;
 
-    client.logOn(logonOpts);
-
-    client.on('steamGuard', (domain, callback, lastCodeWrong) => {
-      guardFired = true;
+    client.on('steamGuard', (domain, callback) => {
       if (pendingCode) {
-        // We have a code from the UI — use it immediately
         console.log(`[RankedQueue] Providing submitted Guard code (domain=${domain || 'mobile'})`);
         const code = pendingCode;
         pendingCode = null;
         callback(code);
       } else {
-        // No code available — abort this login and signal the UI
         console.log(`[RankedQueue] Steam Guard required (domain=${domain || 'mobile'}) — waiting for code from app`);
-        guardNeeded = true;
+        guardNeeded     = true;
+        steamClientInit = null;
         client.logOff();
         reject(new Error('needs_guard_code'));
       }
@@ -129,43 +131,68 @@ async function getSteamSession() {
       persistToken(token);
     });
 
-    client.on('loggedOn', async () => {
-      // If Guard fired but we didn't provide a code (shouldn't happen, but guard against it)
-      if (guardFired && guardNeeded) { client.logOff(); return; }
-      guardNeeded = false;
-      try {
-        const { encryptedAppTicket } = await client.createEncryptedAppTicket(APP_ID, Buffer.from('RLINK'));
-        const auth = encodeURIComponent(encryptedAppTicket.toString('base64'));
-        const id64 = client.steamID.getSteamID64();
+    client.on('loggedOn', () => {
+      guardNeeded      = false;
+      steamClient      = client;
+      steamClientReady = true;
+      steamClientInit  = null;
+      console.log('[RankedQueue] Steam client logged in — will stay connected for process lifetime');
+      resolve();
+    });
 
-        const loginURL =
-          `${BASE_URL}/game/login/platformlogin?` +
-          `accountType=STEAM&activeMatchId=-1&alias=${id64}&appID=${APP_ID}` +
-          `&auth=${auth}&callNum=0&clientLibVersion=190&country=AU` +
-          `&installationType=windows&language=en&macAddress=DE-AD-D0-0D-00-00` +
-          `&majorVersion=4.0.0&minorVersion=0&platformUserID=${id64}` +
-          `&timeoutOverride=0&title=age3`;
-
-        const r = await axios.post(loginURL, null, {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cache-Control': 'no-store' },
-        });
-
-        const sid     = Array.isArray(r.data) && typeof r.data[1] === 'string' ? r.data[1] : null;
-        const cookies = (r.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
-        if (!sid) throw new Error('Could not extract sessionID from Relic login');
-
-        client.logOff();
-        steamSession = { sid, cookies, expiresAt: Date.now() + SESSION_TTL };
-        console.log('[RankedQueue] Steam session acquired');
-        resolve(steamSession);
-      } catch (e) {
-        client.logOff();
-        reject(e);
+    // Mark client gone so next poll reconnects; does not reject (poll handles the retry)
+    client.on('disconnected', (eresult, msg) => {
+      if (steamClient === client) {
+        steamClient      = null;
+        steamClientReady = false;
+        console.warn(`[RankedQueue] Steam client disconnected (eresult=${eresult}) — will reconnect on next poll`);
       }
     });
 
-    client.on('error', e => reject(new Error(`Steam login: ${e.message}`)));
+    client.on('error', e => {
+      steamClientInit  = null;
+      steamClient      = null;
+      steamClientReady = false;
+      reject(new Error(`Steam login: ${e.message}`));
+    });
+
+    client.logOn(logonOpts);
   });
+
+  return steamClientInit;
+}
+
+// Refreshes the Relic API session using the already-connected Steam client.
+// No Steam logout/login — just a new encrypted app ticket every SESSION_TTL minutes.
+async function getSteamSession() {
+  if (steamSession && Date.now() < steamSession.expiresAt) return steamSession;
+  if (guardNeeded && !pendingCode) throw new Error('needs_guard_code');
+
+  await ensureSteamClient();
+
+  const { encryptedAppTicket } = await steamClient.createEncryptedAppTicket(APP_ID, Buffer.from('RLINK'));
+  const auth = encodeURIComponent(encryptedAppTicket.toString('base64'));
+  const id64 = steamClient.steamID.getSteamID64();
+
+  const loginURL =
+    `${BASE_URL}/game/login/platformlogin?` +
+    `accountType=STEAM&activeMatchId=-1&alias=${id64}&appID=${APP_ID}` +
+    `&auth=${auth}&callNum=0&clientLibVersion=190&country=AU` +
+    `&installationType=windows&language=en&macAddress=DE-AD-D0-0D-00-00` +
+    `&majorVersion=4.0.0&minorVersion=0&platformUserID=${id64}` +
+    `&timeoutOverride=0&title=age3`;
+
+  const r = await axios.post(loginURL, null, {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cache-Control': 'no-store' },
+  });
+
+  const sid     = Array.isArray(r.data) && typeof r.data[1] === 'string' ? r.data[1] : null;
+  const cookies = (r.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
+  if (!sid) throw new Error('Could not extract sessionID from Relic login');
+
+  steamSession = { sid, cookies, expiresAt: Date.now() + SESSION_TTL };
+  console.log('[RankedQueue] Relic session acquired');
+  return steamSession;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -334,7 +361,7 @@ async function poll() {
 
       // 401 = Relic session expired — invalidate immediately so next poll re-authenticates
       if (e.response?.status === 401 || e.message?.includes('401')) {
-        console.log('[RankedQueue] 401 received — clearing Steam session for immediate re-auth');
+        console.log('[RankedQueue] 401 received — clearing Relic session (Steam client stays connected)');
         steamSession = null;
       }
 
@@ -376,9 +403,12 @@ function getQueue() {
 /** Called by POST /api/ranked/steam-guard when the user submits the code from the app */
 function submitGuardCode(code) {
   if (!guardNeeded) return { success: false, error: 'No Steam Guard prompt is currently pending' };
-  pendingCode  = code.trim();
-  guardNeeded  = false;
-  steamSession = null; // force a fresh login attempt using the code
+  pendingCode      = code.trim();
+  guardNeeded      = false;
+  steamSession     = null;
+  steamClient      = null;   // force a fresh ensureSteamClient with the Guard code
+  steamClientReady = false;
+  steamClientInit  = null;
   console.log('[RankedQueue] Guard code received — retrying login');
   setTimeout(poll, 500);
   return { success: true };
