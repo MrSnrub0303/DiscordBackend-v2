@@ -488,14 +488,15 @@ async function createTwitchEvent(discordEvent) {
     log.info('Twitch', `Created event: "${discordEvent.name}"`);
     return segments[0] || null;
   }
+  const errBody = await resp.json().catch(() => ({}));
   if (resp.status === 400) {
-    const msg = ((await resp.json())?.message || '').toLowerCase();
+    const msg = (errBody?.message || '').toLowerCase();
     if (msg.includes('overlapping') || msg.includes('past')) {
       log.info('Twitch', `Skipping "${discordEvent.name}" (past or overlap)`);
       return null;
     }
   }
-  log.warn('Twitch', `Error creating event "${discordEvent.name}": ${resp.status}`);
+  log.warn('Twitch', `Error creating event "${discordEvent.name}": ${resp.status} — ${JSON.stringify(errBody)}`);
   return null;
 }
 
