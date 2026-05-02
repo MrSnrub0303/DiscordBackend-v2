@@ -74,7 +74,7 @@ function loadPersistedToken() {
   }
 }
 
-function persistToken(token) {
+function persistToken(token, guardCodeWasUsed = false) {
   // Write to local file (useful in local dev or with a persistent disk)
   try {
     fs.writeFileSync(MACHINE_AUTH_FILE, token, { encoding: 'utf8', mode: 0o600 });
@@ -82,14 +82,18 @@ function persistToken(token) {
     console.warn('[RankedQueue] Could not write machine auth token to file:', e.message);
   }
 
-  // Always log the token prominently so it can be copied into the
-  // STEAM_MACHINE_AUTH_TOKEN environment variable on Render (or any cloud host)
-  console.log('[RankedQueue] ══════════════════════════════════════════════════════════════');
-  console.log('[RankedQueue] Steam Guard accepted. Copy the token below into your');
-  console.log('[RankedQueue] STEAM_MACHINE_AUTH_TOKEN environment variable to skip');
-  console.log('[RankedQueue] Guard prompts on all future restarts:');
-  console.log(`[RankedQueue] ${token}`);
-  console.log('[RankedQueue] ══════════════════════════════════════════════════════════════');
+  if (guardCodeWasUsed) {
+    // Guard code was manually entered — user must update the env var
+    console.log('[RankedQueue] ══════════════════════════════════════════════════════════════');
+    console.log('[RankedQueue] Guard code accepted. Update STEAM_MACHINE_AUTH_TOKEN with');
+    console.log('[RankedQueue] this token to avoid Guard prompts on future restarts:');
+    console.log(`[RankedQueue] ${token}`);
+    console.log('[RankedQueue] ══════════════════════════════════════════════════════════════');
+  } else {
+    // Steam refreshed the token automatically — no Guard was entered, no action needed
+    // Update env var only if you plan to restart the server soon
+    console.log(`[RankedQueue] Machine auth token auto-refreshed by Steam (update STEAM_MACHINE_AUTH_TOKEN if restarting soon): ${token}`);
+  }
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -104,6 +108,7 @@ async function ensureSteamClient() {
 
   steamClientInit = new Promise((resolve, reject) => {
     const client = new SteamUser();
+    let guardCodeUsed = false;
 
     const logonOpts = {
       accountName: process.env.STEAM_USERNAME,
@@ -114,6 +119,7 @@ async function ensureSteamClient() {
     client.on('steamGuard', (domain, callback) => {
       if (pendingCode) {
         console.log(`[RankedQueue] Providing submitted Guard code (domain=${domain || 'mobile'})`);
+        guardCodeUsed = true;
         const code = pendingCode;
         pendingCode = null;
         callback(code);
@@ -128,7 +134,7 @@ async function ensureSteamClient() {
 
     client.on('machineAuthToken', token => {
       sentryToken = token;
-      persistToken(token);
+      persistToken(token, guardCodeUsed);
     });
 
     client.on('loggedOn', () => {

@@ -249,7 +249,7 @@ function getTwitchAuthUrl(serverBaseUrl) {
     client_id: TWITCH_CLIENT_ID,
     redirect_uri: redirect,
     response_type: 'code',
-    scope: 'channel:read:stream_key chat:edit chat:read moderator:manage:announcements channel:manage:predictions',
+    scope: 'channel:read:stream_key chat:edit chat:read moderator:manage:announcements channel:manage:predictions channel:manage:schedule',
   });
   return `https://id.twitch.tv/oauth2/authorize?${params}`;
 }
