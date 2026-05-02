@@ -827,7 +827,7 @@ async function syncEventsLoop() {
         } else {
           const tEv = twitchDict[title];
           const tStart = new Date(tEv.start_time).getTime();
-          const tEnd = tStart + (tEv.duration_minutes || 0) * 60000;
+          const tEnd = new Date(tEv.end_time).getTime();
           if (Math.abs(dEv.scheduledStartAt.getTime() - tStart) > 1000 ||
               Math.abs(dEv.scheduledEndAt.getTime() - tEnd) > 1000) {
             log.info('EventSync', `"${title}" times differ → updating`);
