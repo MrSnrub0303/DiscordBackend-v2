@@ -150,9 +150,26 @@
 
         .game-row-header {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 0.4rem;
         }
+
+        /* Map dropdown */
+        .map-select {
+            flex: 1;
+            min-width: 0;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--gold-dark);
+            color: var(--text-muted);
+            padding: 0.18rem 0.25rem;
+            border-radius: 2px;
+            font-size: 0.72rem;
+            font-family: 'Outfit', sans-serif;
+            cursor: pointer;
+            outline: none;
+        }
+        .map-select option { background: var(--bg-color); }
+        .map-select:focus { border-color: var(--gold-base); }
 
         .game-label {
             font-weight: 600;
@@ -308,8 +325,8 @@
         <div class="bo-row">
             <label>Best Of:</label>
             <select id="bo-select" onchange="updateBO()">
-                <option value="3" selected>3</option>
-                <option value="5">5</option>
+                <option value="3">3</option>
+                <option value="5" selected>5</option>
                 <option value="7">7</option>
                 <option value="9">9</option>
             </select>
@@ -332,9 +349,22 @@
 
         const civs = ['Aztec','British','Chinese','Danish','Dutch','Ethiopia','French','Germany','Haudenosaunee','Hausa','Inca','India','Italy','Japan','Lakota','Malta','Mexico','Ottoman','Polish','Portuguese','Russia','Spanish','Sweden','USA'];
 
+        const maps = [
+            'Anatolia.mp4','Arctic Territories.mp4','Balkan Mountains.mp4',
+            'Bohemia.mp4','Cascade Range.mp4','Central Plain.mp4',
+            'Courland.mp4','Dakota.mp4','Darfur.mp4',
+            'Great Plains.mp4','Guianas.mp4','Hokkaido.mp4',
+            'Ivory Coast.mp4','Lake Victoria.mp4','Manchuria.mp4',
+            'Mexico.mp4','Mongolia.mp4','Nile Valley.mp4',
+            'Painted Desert.mp4','Pampas Sierras.mp4','Punjab.mp4',
+            'Saguenay.mp4','Scandinavia.mp4','Sudd.mp4',
+            'Upper Himalayas.mp4'
+        ];
+
         let gameStates = Array.from({length: 9}, (_, i) => ({
             gameNum: i + 1, p1Civ: '', p2Civ: '', winner: null
         }));
+        let mapStates = Array.from({length: 9}, () => '');
 
         /* ── Auto-connect with retry ── */
         async function connectOBS() {
@@ -359,12 +389,17 @@
             container.innerHTML = '';
             const bo = parseInt(document.getElementById('bo-select').value);
             const civOptions = civs.map(c => `<option value="${c}">${c}</option>`).join('');
+            const mapOptions = `<option value="">Map…</option>` +
+                maps.map(m => `<option value="${m}">${m.replace('.mp4','')}</option>`).join('');
 
             for (let i = 1; i <= bo; i++) {
                 container.insertAdjacentHTML('beforeend', `
                     <div class="game-row" id="game-row-${i}">
                         <div class="game-row-header">
                             <span class="game-label">Game ${i}</span>
+                            <select id="map-${i}" class="map-select" onchange="setMap(${i}, this.value)">
+                                ${mapOptions}
+                            </select>
                             <button class="btn-reset" onclick="resetGame(${i})">↺ Reset</button>
                         </div>
                         <div class="game-row-civs">
@@ -398,6 +433,10 @@
                 if (state.winner) {
                     const radio = document.getElementById(state.winner === 1 ? `win-p1-${i}` : `win-p2-${i}`);
                     if (radio) radio.checked = true;
+                }
+                if (mapStates[i - 1]) {
+                    const ms = document.getElementById(`map-${i}`);
+                    if (ms) ms.value = mapStates[i - 1];
                 }
             }
         }
@@ -477,6 +516,21 @@
             } catch (e) {}
         }
 
+        /* ── Map selection ── */
+        async function updateActiveMap() {
+            // Highest-numbered game with a map selected takes precedence
+            let activeMap = null;
+            for (let i = mapStates.length - 1; i >= 0; i--) {
+                if (mapStates[i]) { activeMap = mapStates[i]; break; }
+            }
+            await setSceneItemEnabled('Map Videos', activeMap, maps);
+        }
+
+        async function setMap(gameNum, mapName) {
+            mapStates[gameNum - 1] = mapName;
+            await updateActiveMap();
+        }
+
         function recalculateScore() {
             const bo = parseInt(document.getElementById('bo-select').value);
             let p1 = 0, p2 = 0;
@@ -498,6 +552,11 @@
             await setCiv(gameNum, 1, '');
             await setCiv(gameNum, 2, '');
             await setWinner(gameNum, null);
+            // Reset map for this game
+            mapStates[gameNum - 1] = '';
+            const ms = document.getElementById(`map-${gameNum}`);
+            if (ms) ms.value = '';
+            await updateActiveMap();
         }
 
         async function resetAll() {
@@ -687,6 +746,17 @@
                     }
                 } catch (e) {}
             }
+
+            // ── Active map (detect which map is currently shown in Map Videos) ──
+            try {
+                const enabledMaps = await getEnabledSourceNames('Map Videos');
+                const activeMap = maps.find(m => enabledMaps.has(m));
+                if (activeMap) {
+                    mapStates[0] = activeMap;
+                    const ms = document.getElementById('map-1');
+                    if (ms) ms.value = activeMap;
+                }
+            } catch (e) {}
         }
 
         window.onload = () => { initUI(); connectOBS(); };
