@@ -8,27 +8,16 @@
     <style>
         :root {
             --bg-color: #1a110a;
-            --wood-bg: #2d1d11;
-            --wood-light: #442b19;
             --gold-light: #fcd975;
             --gold-base: #b48c36;
             --gold-dark: #634b17;
             --text-main: #ffffff;
             --text-muted: #e4ceaa;
-            --danger: #991b1b;
-            --success: #166534;
         }
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            font-family: 'Outfit', sans-serif;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Outfit', sans-serif; }
 
-        h1, h2, h3, .score-display, button, label {
-            font-family: 'Cinzel', serif;
-        }
+        h2, button, label { font-family: 'Cinzel', serif; }
 
         body {
             background: radial-gradient(circle at center, #2d1d11 0%, #1a110a 100%);
@@ -53,32 +42,15 @@
             animation: fadeInUp 0.5s ease backwards;
         }
 
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.75rem;
-        }
-
-        .panel-header h2 {
+        .panel-h2 {
             font-size: 1.25rem;
             color: var(--gold-light);
             text-shadow: 0 2px 4px rgba(0,0,0,0.8);
-        }
-
-        /* ── Connect Bar ── */
-        .connect-bar {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
+            margin-bottom: 0.75rem;
         }
 
         /* ── Form elements ── */
-        .form-group {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
+        .form-group { display: flex; flex-direction: column; gap: 0.25rem; }
 
         label {
             font-size: 0.8rem;
@@ -97,7 +69,7 @@
             border-radius: 2px;
             font-size: 0.9rem;
             outline: none;
-            transition: all 0.2s ease;
+            transition: border-color 0.2s, box-shadow 0.2s;
             font-weight: 600;
             width: 100%;
         }
@@ -107,10 +79,7 @@
             box-shadow: 0 0 0 2px rgba(252, 217, 117, 0.2);
         }
 
-        select option {
-            background-color: var(--bg-color);
-            color: var(--text-main);
-        }
+        select option { background-color: var(--bg-color); color: var(--text-main); }
 
         /* ── Buttons ── */
         button {
@@ -128,37 +97,20 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.5);
             letter-spacing: 1px;
         }
-
-        button:hover {
-            background: linear-gradient(to bottom, #5a3a22, #3b2617);
-            border-color: var(--gold-base);
-            transform: translateY(-1px);
-        }
+        button:hover { background: linear-gradient(to bottom, #5a3a22, #3b2617); border-color: var(--gold-base); transform: translateY(-1px); }
         button:active { transform: translateY(0); }
 
         .btn-sync {
             background: linear-gradient(to bottom, var(--gold-base), var(--gold-dark));
-            color: #1a110a;
-            text-shadow: none;
-            font-weight: 800;
-            width: 100%;
+            color: #1a110a; text-shadow: none; font-weight: 800; width: 100%;
         }
-        .btn-sync:hover {
-            background: linear-gradient(to bottom, var(--gold-light), var(--gold-base));
-            color: #000;
-        }
+        .btn-sync:hover { background: linear-gradient(to bottom, var(--gold-light), var(--gold-base)); color: #000; }
 
         .btn-danger {
             background: linear-gradient(to bottom, #7f1d1d, #450a0a);
-            color: var(--gold-light);
-            border-color: #991b1b;
-            width: 100%;
+            color: var(--gold-light); border-color: #991b1b; width: 100%;
         }
-        .btn-danger:hover {
-            background: linear-gradient(to bottom, #991b1b, #7f1d1d);
-            border-color: #ef4444;
-            color: #fff;
-        }
+        .btn-danger:hover { background: linear-gradient(to bottom, #991b1b, #7f1d1d); border-color: #ef4444; color: #fff; }
 
         .btn-reset {
             background: transparent;
@@ -169,45 +121,20 @@
             box-shadow: none;
             letter-spacing: 0.5px;
         }
-        .btn-reset:hover {
-            border-color: var(--gold-dark);
-            color: var(--gold-light);
-            background: transparent;
-            transform: none;
-        }
+        .btn-reset:hover { border-color: var(--gold-dark); color: var(--gold-light); background: transparent; transform: none; }
 
-        /* ── Status Badge ── */
-        .status-badge {
-            display: inline-block;
-            padding: 0.2rem 0.5rem;
-            border-radius: 2px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            background: rgba(153, 27, 27, 0.4);
-            color: #fca5a5;
-            border: 1px solid #991b1b;
-            font-family: 'Cinzel', serif;
-        }
-        .status-badge.connected {
-            background: rgba(22, 101, 52, 0.4);
-            color: #86efac;
-            border: 1px solid #166534;
-        }
+        /* ── Match Info ── */
+        .match-form { display: flex; flex-direction: column; gap: 0.75rem; }
 
-        /* ── Score Display ── */
-        .score-display {
-            font-size: 2rem;
-            font-weight: 800;
-            color: #fce8a1;
-            text-shadow: 0 2px 4px rgba(0,0,0,1), 0 0 10px rgba(252, 217, 117, 0.3);
-        }
-
-        /* ── Match Info - single column ── */
-        .match-form {
+        /* ── Best Of row ── */
+        .bo-row {
             display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.6rem;
         }
+        .bo-row label { white-space: nowrap; }
+        .bo-row select { width: 70px; padding: 0.25rem 0.5rem; flex-shrink: 0; }
 
         /* ── Game Rows ── */
         .game-row {
@@ -239,11 +166,7 @@
             gap: 0.75rem;
         }
 
-        .game-player-col {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-        }
+        .game-player-col { display: flex; flex-direction: column; gap: 0.35rem; }
 
         /* ── Winner Radio Toggle ── */
         .winner-toggle {
@@ -251,43 +174,54 @@
             align-items: center;
             gap: 0.45rem;
             cursor: pointer;
-            padding: 0.15rem 0;
+            padding: 0.1rem 0;
             user-select: none;
         }
 
+        /* Hide native radio — keep in DOM so :checked works */
         .winner-toggle input[type="radio"] {
-            appearance: none;
-            -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
-            border: 2px solid var(--gold-dark);
-            border-radius: 50%;
-            background: rgba(0, 0, 0, 0.5);
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: all 0.15s ease;
-            position: relative;
+            position: absolute;
+            opacity: 0;
+            width: 0;
+            height: 0;
+            margin: 0;
         }
 
-        .winner-toggle input[type="radio"]::after {
+        /* Custom circle visual */
+        .radio-dot {
+            display: block;
+            width: 14px;
+            height: 14px;
+            min-width: 14px;
+            min-height: 14px;
+            border-radius: 50%;
+            border: 2px solid var(--gold-dark);
+            background: rgba(0, 0, 0, 0.5);
+            flex-shrink: 0;
+            position: relative;
+            transition: border-color 0.15s;
+        }
+
+        /* Inner dot */
+        .radio-dot::after {
             content: '';
+            display: block;
             position: absolute;
             top: 50%;
             left: 50%;
-            transform: translate(-50%, -50%) scale(0);
             width: 6px;
             height: 6px;
             border-radius: 50%;
             background: var(--gold-light);
+            transform: translate(-50%, -50%) scale(0);
             transition: transform 0.15s ease;
         }
 
-        .winner-toggle input[type="radio"]:checked {
+        /* Checked state */
+        .winner-toggle input[type="radio"]:checked + .radio-dot {
             border-color: var(--gold-base);
-            background: rgba(180, 140, 54, 0.2);
         }
-
-        .winner-toggle input[type="radio"]:checked::after {
+        .winner-toggle input[type="radio"]:checked + .radio-dot::after {
             transform: translate(-50%, -50%) scale(1);
         }
 
@@ -298,12 +232,11 @@
             font-weight: 600;
             transition: color 0.15s;
         }
-
-        .winner-toggle:has(input:checked) .winner-toggle-label {
+        .winner-toggle input[type="radio"]:checked ~ .winner-toggle-label {
             color: var(--gold-light);
         }
 
-        /* ── Animations ── */
+        /* ── Animation ── */
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(10px); }
             to   { opacity: 1; transform: translateY(0); }
@@ -312,20 +245,9 @@
 </head>
 <body>
 
-    <!-- Connection Bar -->
-    <div class="glass-panel" style="animation-delay: 0.05s; padding: 0.75rem 1.25rem;">
-        <div class="connect-bar">
-            <button onclick="connectOBS()" style="padding: 0.45rem 1.5rem;">Connect</button>
-            <span id="conn-status" class="status-badge">Disconnected</span>
-        </div>
-    </div>
-
     <!-- Match Info Panel -->
-    <div class="glass-panel" style="animation-delay: 0.15s;">
-        <div class="panel-header">
-            <h2>Match Info</h2>
-            <div class="score-display"><span id="score-p1">0</span> - <span id="score-p2">0</span></div>
-        </div>
+    <div class="glass-panel" style="animation-delay: 0.1s;">
+        <h2 class="panel-h2">Match Info</h2>
         <div class="match-form">
             <div class="form-group">
                 <label>Player 1 Name</label>
@@ -349,25 +271,23 @@
     </div>
 
     <!-- Results Panel -->
-    <div class="glass-panel" style="animation-delay: 0.25s; padding: 0.5rem 1.25rem;">
-        <div class="panel-header" style="margin-top: 0.75rem;">
-            <h2>Results</h2>
-            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
-                <label>Best Of:</label>
-                <select id="bo-select" style="width: 70px; padding: 0.25rem 0.5rem;" onchange="updateBO()">
-                    <option value="3">3</option>
-                    <option value="5">5</option>
-                    <option value="7">7</option>
-                    <option value="9" selected>9</option>
-                </select>
-            </div>
+    <div class="glass-panel" style="animation-delay: 0.2s; padding: 0.75rem 1.25rem 0.5rem;">
+        <div class="bo-row">
+            <label>Best Of:</label>
+            <select id="bo-select" onchange="updateBO()">
+                <option value="3">3</option>
+                <option value="5">5</option>
+                <option value="7">7</option>
+                <option value="9" selected>9</option>
+            </select>
         </div>
-        <div id="games-container" style="margin-top: 0.5rem;"></div>
+        <div id="games-container"></div>
     </div>
 
     <script>
         const OBS_URL  = 'ws://127.0.0.1:4455';
         const OBS_PASS = 'RoyplmJZZXNdwUzL';
+        const RECONNECT_DELAY = 3000;
 
         const obs = new OBSWebSocket();
         let connected = false;
@@ -375,12 +295,26 @@
         const civs = ['Aztec','British','Chinese','Danish','Dutch','Ethiopia','French','Germany','Haudenosaunee','Hausa','Inca','India','Italy','Japan','Lakota','Malta','Mexico','Ottoman','Polish','Portuguese','Russia','Spanish','Sweden','USA'];
 
         let gameStates = Array.from({length: 9}, (_, i) => ({
-            gameNum: i + 1,
-            p1Civ: '',
-            p2Civ: '',
-            winner: null
+            gameNum: i + 1, p1Civ: '', p2Civ: '', winner: null
         }));
 
+        /* ── Auto-connect with retry ── */
+        async function connectOBS() {
+            try {
+                await obs.connect(OBS_URL, OBS_PASS, { rpcVersion: 1 });
+                connected = true;
+            } catch (err) {
+                console.warn('[OBS] connect failed, retrying in 3s…', err.message);
+                setTimeout(connectOBS, RECONNECT_DELAY);
+            }
+        }
+
+        obs.on('ConnectionClosed', () => {
+            connected = false;
+            setTimeout(connectOBS, RECONNECT_DELAY);
+        });
+
+        /* ── UI ── */
         function initUI() {
             const container = document.getElementById('games-container');
             container.innerHTML = '';
@@ -388,7 +322,7 @@
             const civOptions = civs.map(c => `<option value="${c}">${c}</option>`).join('');
 
             for (let i = 1; i <= bo; i++) {
-                const html = `
+                container.insertAdjacentHTML('beforeend', `
                     <div class="game-row" id="game-row-${i}">
                         <div class="game-row-header">
                             <span class="game-label">Game ${i}</span>
@@ -401,6 +335,7 @@
                                 </select>
                                 <label class="winner-toggle">
                                     <input type="radio" name="winner-${i}" id="win-p1-${i}" value="1" onchange="setWinner(${i}, 1)">
+                                    <span class="radio-dot"></span>
                                     <span class="winner-toggle-label">P1 Win</span>
                                 </label>
                             </div>
@@ -410,13 +345,13 @@
                                 </select>
                                 <label class="winner-toggle">
                                     <input type="radio" name="winner-${i}" id="win-p2-${i}" value="2" onchange="setWinner(${i}, 2)">
+                                    <span class="radio-dot"></span>
                                     <span class="winner-toggle-label">P2 Win</span>
                                 </label>
                             </div>
                         </div>
                     </div>
-                `;
-                container.insertAdjacentHTML('beforeend', html);
+                `);
 
                 const state = gameStates[i - 1];
                 if (state.p1Civ) document.getElementById(`p1-civ-${i}`).value = state.p1Civ;
@@ -428,41 +363,12 @@
             }
         }
 
-        function updateBO() {
-            initUI();
-            recalculateScore();
-        }
+        function updateBO() { initUI(); recalculateScore(); }
 
-        async function connectOBS() {
-            const status = document.getElementById('conn-status');
-            try {
-                await obs.connect(OBS_URL, OBS_PASS, { rpcVersion: 1 });
-                connected = true;
-                status.textContent = 'Connected';
-                status.className = 'status-badge connected';
-            } catch (error) {
-                console.error('Failed to connect', error);
-                status.textContent = 'Error';
-                status.className = 'status-badge';
-                alert('Failed to connect to OBS WebSocket. Ensure OBS is running and WebSocket is enabled on port 4455.');
-            }
-        }
-
-        obs.on('ConnectionClosed', () => {
-            connected = false;
-            const status = document.getElementById('conn-status');
-            status.textContent = 'Disconnected';
-            status.className = 'status-badge';
-        });
-
+        /* ── OBS helpers ── */
         async function updateOBSInputText(inputName, textValue) {
             if (!connected) return;
-            try {
-                await obs.call('SetInputSettings', {
-                    inputName: inputName,
-                    inputSettings: { text: textValue }
-                });
-            } catch (e) {}
+            try { await obs.call('SetInputSettings', { inputName, inputSettings: { text: textValue } }); } catch (e) {}
         }
 
         async function syncMatchInfo() {
@@ -505,27 +411,27 @@
             const state = gameStates[gameNum - 1];
             state.winner = winner;
 
-            const radioP1 = document.getElementById(`win-p1-${gameNum}`);
-            const radioP2 = document.getElementById(`win-p2-${gameNum}`);
-            if (radioP1) radioP1.checked = (winner === 1);
-            if (radioP2) radioP2.checked = (winner === 2);
+            const r1 = document.getElementById(`win-p1-${gameNum}`);
+            const r2 = document.getElementById(`win-p2-${gameNum}`);
+            if (r1) r1.checked = (winner === 1);
+            if (r2) r2.checked = (winner === 2);
 
             recalculateScore();
 
             if (!connected) return;
             const n = gameNum;
-            const allResults   = [`RESULT${n} P1 Victory`, `RESULT${n} P1 Defeat`, `RESULT${n} P2 Victory`, `RESULT${n} P2 Defeat`];
-            const activeResults = winner === 1 ? [`RESULT${n} P1 Victory`, `RESULT${n} P2 Defeat`]
-                                : winner === 2 ? [`RESULT${n} P2 Victory`, `RESULT${n} P1 Defeat`]
-                                : [];
+            const all    = [`RESULT${n} P1 Victory`, `RESULT${n} P1 Defeat`, `RESULT${n} P2 Victory`, `RESULT${n} P2 Defeat`];
+            const active = winner === 1 ? [`RESULT${n} P1 Victory`, `RESULT${n} P2 Defeat`]
+                         : winner === 2 ? [`RESULT${n} P2 Victory`, `RESULT${n} P1 Defeat`]
+                         : [];
             try {
                 const { sceneItems } = await obs.call('GetGroupSceneItemList', { sceneName: `Game ${n}` });
                 for (const item of sceneItems) {
-                    if (allResults.includes(item.sourceName)) {
+                    if (all.includes(item.sourceName)) {
                         await obs.call('SetSceneItemEnabled', {
                             sceneName: `Game ${n}`,
                             sceneItemId: item.sceneItemId,
-                            sceneItemEnabled: activeResults.includes(item.sourceName)
+                            sceneItemEnabled: active.includes(item.sourceName)
                         });
                     }
                 }
@@ -539,17 +445,15 @@
                 if (gameStates[i].winner === 1) p1++;
                 if (gameStates[i].winner === 2) p2++;
             }
-            document.getElementById('score-p1').textContent = p1;
-            document.getElementById('score-p2').textContent = p2;
             updateOBSInputText('Player 1 Score', p1.toString());
             updateOBSInputText('Player 2 Score', p2.toString());
         }
 
         async function resetGame(gameNum) {
-            const p1Sel = document.getElementById(`p1-civ-${gameNum}`);
-            const p2Sel = document.getElementById(`p2-civ-${gameNum}`);
-            if (p1Sel) p1Sel.value = '';
-            if (p2Sel) p2Sel.value = '';
+            const s1 = document.getElementById(`p1-civ-${gameNum}`);
+            const s2 = document.getElementById(`p2-civ-${gameNum}`);
+            if (s1) s1.value = '';
+            if (s2) s2.value = '';
             gameStates[gameNum - 1].p1Civ = '';
             gameStates[gameNum - 1].p2Civ = '';
             await setCiv(gameNum, 1, '');
@@ -559,15 +463,12 @@
 
         async function resetAll() {
             if (!confirm('Are you sure you want to reset all players, casters, civs, and scores?')) return;
-            document.getElementById('p1-name').value = '';
-            document.getElementById('p2-name').value = '';
-            document.getElementById('host-1').value  = '';
-            document.getElementById('host-2').value  = '';
+            ['p1-name','p2-name','host-1','host-2'].forEach(id => document.getElementById(id).value = '');
             await syncMatchInfo();
             for (let i = 1; i <= 9; i++) await resetGame(i);
         }
 
-        window.onload = initUI;
+        window.onload = () => { initUI(); connectOBS(); };
     </script>
 </body>
 </html>
