@@ -258,9 +258,8 @@
         /* ── Minimal Scrollbar ── */
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: rgba(180, 140, 54, 0.25); border-radius: 2px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(180, 140, 54, 0.5); }
-        * { scrollbar-width: thin; scrollbar-color: rgba(180, 140, 54, 0.25) transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+        * { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.15) transparent; }
 
         /* ── Match Info collapse ── */
         .match-form { overflow: hidden; max-height: 700px; transition: max-height 0.3s ease, opacity 0.25s ease; opacity: 1; }
@@ -562,6 +561,19 @@
             const logoMap   = { Spring: 'Spring Logo',      Summer: 'Summer Logo',      Autumn: 'Autumn Logo',      Winter: 'Winter Logo',      EPL: 'EPL Logo' };
             await setSceneItemEnabled('Hype Screen', season ? hypeMap[season] : null, hypeReels);
             await setSceneItemEnabled('Home Screen', season ? logoMap[season] : null, logos);
+            // Enabling a media source triggers OBS to start playing it (audio bleeds through
+            // even on inactive scenes). Stop it immediately if Hype Screen isn't live.
+            if (connected && season) {
+                try {
+                    const { currentProgramSceneName } = await obs.call('GetCurrentProgramScene');
+                    if (currentProgramSceneName !== 'Hype Screen') {
+                        await obs.call('TriggerMediaInputAction', {
+                            inputName: hypeMap[season],
+                            mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP'
+                        });
+                    }
+                } catch (e) {}
+            }
         }
 
         window.onload = () => { initUI(); connectOBS(); };
