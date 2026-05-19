@@ -559,21 +559,51 @@
             const logos     = ['Spring Logo', 'Summer Logo', 'Autumn Logo', 'Winter Logo', 'EPL Logo'];
             const hypeMap   = { Spring: 'Spring Hype Reel', Summer: 'Summer Hype Reel', Autumn: 'Autumn Hype Reel', Winter: 'Winter Hype Reel', EPL: 'Spring Hype Reel' };
             const logoMap   = { Spring: 'Spring Logo',      Summer: 'Summer Logo',      Autumn: 'Autumn Logo',      Winter: 'Winter Logo',      EPL: 'EPL Logo' };
-            await setSceneItemEnabled('Hype Screen', season ? hypeMap[season] : null, hypeReels);
-            await setSceneItemEnabled('Home Screen', season ? logoMap[season] : null, logos);
-            // Enabling a media source triggers OBS to start playing it (audio bleeds through
-            // even on inactive scenes). Stop it immediately if Hype Screen isn't live.
-            if (connected && season) {
-                try {
-                    const { currentProgramSceneName } = await obs.call('GetCurrentProgramScene');
-                    if (currentProgramSceneName !== 'Hype Screen') {
+            const activeReel = season ? hypeMap[season] : null;
+
+            // Pre-stop ALL reels before touching visibility.
+            // SetSceneItemEnabled:false only hides visually — media keeps playing and stays
+            // in the audio mixer. Stopping first clears all previously-playing reels so they
+            // don't accumulate across multiple season changes.
+            if (connected) {
+                for (const reel of hypeReels) {
+                    try {
                         await obs.call('TriggerMediaInputAction', {
-                            inputName: hypeMap[season],
+                            inputName: reel,
                             mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP'
                         });
-                    }
-                } catch (e) {}
+                    } catch (e) {}
+                }
             }
+
+            await setSceneItemEnabled('Hype Screen', activeReel, hypeReels);
+            await setSceneItemEnabled('Home Screen', season ? logoMap[season] : null, logos);
+
+            if (!connected) return;
+            try {
+                const { currentProgramSceneName } = await obs.call('GetCurrentProgramScene');
+                if (currentProgramSceneName === 'Hype Screen') {
+                    // Scene is live — restart the selected reel so it plays immediately.
+                    if (activeReel) {
+                        try {
+                            await obs.call('TriggerMediaInputAction', {
+                                inputName: activeReel,
+                                mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_RESTART'
+                            });
+                        } catch (e) {}
+                    }
+                } else if (activeReel) {
+                    // Scene is not live — SetSceneItemEnabled:true may have re-triggered the
+                    // reel despite the pre-stop. Wait briefly then stop it once more.
+                    await new Promise(r => setTimeout(r, 250));
+                    try {
+                        await obs.call('TriggerMediaInputAction', {
+                            inputName: activeReel,
+                            mediaAction: 'OBS_WEBSOCKET_MEDIA_INPUT_ACTION_STOP'
+                        });
+                    } catch (e) {}
+                }
+            } catch (e) {}
         }
 
         window.onload = () => { initUI(); connectOBS(); };
