@@ -254,14 +254,28 @@
             from { opacity: 0; transform: translateY(10px); }
             to   { opacity: 1; transform: translateY(0); }
         }
+
+        /* ── Minimal Scrollbar ── */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(180, 140, 54, 0.25); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(180, 140, 54, 0.5); }
+        * { scrollbar-width: thin; scrollbar-color: rgba(180, 140, 54, 0.25) transparent; }
+
+        /* ── Match Info collapse ── */
+        .match-form { overflow: hidden; max-height: 700px; transition: max-height 0.3s ease, opacity 0.25s ease; opacity: 1; }
+        .match-form.collapsed { max-height: 0; opacity: 0; }
     </style>
 </head>
 <body>
 
     <!-- Match Info Panel -->
     <div class="glass-panel" style="animation-delay: 0.1s;">
-        <h2 class="panel-h2">Match Info</h2>
-        <div class="match-form">
+        <h2 class="panel-h2" id="match-info-title" onclick="toggleMatchInfo()" style="cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between;">
+            Match Info
+            <span id="match-info-arrow" style="font-size:0.75em;display:inline-block;transition:transform 0.25s;">▾</span>
+        </h2>
+        <div class="match-form" id="match-form-body">
             <div class="form-group">
                 <label>Player 1 Name</label>
                 <input type="text" id="p1-name" placeholder="Player 1" oninput="syncMatchInfo()">
@@ -278,6 +292,17 @@
                 <label>Caster 2 (Host)</label>
                 <input type="text" id="host-2" placeholder="Caster 2" oninput="syncMatchInfo()">
             </div>
+            <div class="form-group">
+                <label>Season</label>
+                <select id="season-select" onchange="setSeason(this.value)">
+                    <option value="">— Select Season —</option>
+                    <option value="Spring">Spring</option>
+                    <option value="Summer">Summer</option>
+                    <option value="Autumn">Autumn</option>
+                    <option value="Winter">Winter</option>
+                    <option value="EPL">EPL</option>
+                </select>
+            </div>
         </div>
     </div>
 
@@ -286,10 +311,10 @@
         <div class="bo-row">
             <label>Best Of:</label>
             <select id="bo-select" onchange="updateBO()">
-                <option value="3">3</option>
+                <option value="3" selected>3</option>
                 <option value="5">5</option>
                 <option value="7">7</option>
-                <option value="9" selected>9</option>
+                <option value="9">9</option>
             </select>
         </div>
         <div id="games-container"></div>
@@ -482,6 +507,39 @@
             ['p1-name','p2-name','host-1','host-2'].forEach(id => document.getElementById(id).value = '');
             await syncMatchInfo();
             for (let i = 1; i <= 9; i++) await resetGame(i);
+        }
+
+        function toggleMatchInfo() {
+            const body  = document.getElementById('match-form-body');
+            const arrow = document.getElementById('match-info-arrow');
+            const collapsed = body.classList.toggle('collapsed');
+            arrow.style.transform = collapsed ? 'rotate(-90deg)' : '';
+        }
+
+        /* Uses GetSceneItemList (direct scene items, not groups) */
+        async function setSceneItemEnabled(sceneName, targetSourceName, allPossibleSourceNames) {
+            if (!connected) return;
+            try {
+                const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
+                for (const item of sceneItems) {
+                    if (allPossibleSourceNames.includes(item.sourceName)) {
+                        await obs.call('SetSceneItemEnabled', {
+                            sceneName,
+                            sceneItemId: item.sceneItemId,
+                            sceneItemEnabled: item.sourceName === targetSourceName
+                        });
+                    }
+                }
+            } catch (e) {}
+        }
+
+        async function setSeason(season) {
+            const hypeReels = ['Spring Hype Reel', 'Summer Hype Reel', 'Autumn Hype Reel', 'Winter Hype Reel'];
+            const logos     = ['Spring Logo', 'Summer Logo', 'Autumn Logo', 'Winter Logo', 'EPL Logo'];
+            const hypeMap   = { Spring: 'Spring Hype Reel', Summer: 'Summer Hype Reel', Autumn: 'Autumn Hype Reel', Winter: 'Winter Hype Reel', EPL: 'Spring Hype Reel' };
+            const logoMap   = { Spring: 'Spring Logo',      Summer: 'Summer Logo',      Autumn: 'Autumn Logo',      Winter: 'Winter Logo',      EPL: 'EPL Logo' };
+            await setSceneItemEnabled('Hype Screen', season ? hypeMap[season] : null, hypeReels);
+            await setSceneItemEnabled('Home Screen', season ? logoMap[season] : null, logos);
         }
 
         window.onload = () => { initUI(); connectOBS(); };
