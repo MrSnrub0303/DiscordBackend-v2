@@ -22,7 +22,7 @@
             background: radial-gradient(circle at center, #2d1d11 0%, #1a110a 100%);
             color: var(--text-main);
             min-height: 100vh;
-            padding: 1rem;
+            padding: 0.4rem 1rem 1rem;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -286,10 +286,10 @@
         <div class="bo-row">
             <label>Best Of:</label>
             <select id="bo-select" onchange="updateBO()">
-                <option value="3">3</option>
+                <option value="3" selected>3</option>
                 <option value="5">5</option>
                 <option value="7">7</option>
-                <option value="9" selected>9</option>
+                <option value="9">9</option>
             </select>
         </div>
         <div id="games-container"></div>
@@ -330,6 +330,17 @@
             setTimeout(connectOBS, RECONNECT_DELAY);
         });
 
+        /* ── Winner toggle visibility ── */
+        function updateWinnerVisibility(gameNum) {
+            const state = gameStates[gameNum - 1];
+            const show = state.p1Civ !== '' && state.p2Civ !== '';
+            const row = document.getElementById(`game-row-${gameNum}`);
+            if (!row) return;
+            row.querySelectorAll('.winner-toggle').forEach(t => {
+                t.style.display = show ? 'flex' : 'none';
+            });
+        }
+
         /* ── UI ── */
         function initUI() {
             const container = document.getElementById('games-container');
@@ -349,7 +360,7 @@
                                 <select id="p1-civ-${i}" onchange="setCiv(${i}, 1, this.value)">
                                     <option value="">P1 Civ</option>${civOptions}
                                 </select>
-                                <label class="winner-toggle">
+                                <label class="winner-toggle" style="display:none">
                                     <input type="radio" name="winner-${i}" id="win-p1-${i}" value="1" onchange="setWinner(${i}, 1)">
                                     <span class="radio-dot"></span>
                                     <span class="winner-toggle-label">P1 Win</span>
@@ -359,7 +370,7 @@
                                 <select id="p2-civ-${i}" onchange="setCiv(${i}, 2, this.value)">
                                     <option value="">P2 Civ</option>${civOptions}
                                 </select>
-                                <label class="winner-toggle">
+                                <label class="winner-toggle" style="display:none">
                                     <input type="radio" name="winner-${i}" id="win-p2-${i}" value="2" onchange="setWinner(${i}, 2)">
                                     <span class="radio-dot"></span>
                                     <span class="winner-toggle-label">P2 Win</span>
@@ -376,6 +387,7 @@
                     const radio = document.getElementById(state.winner === 1 ? `win-p1-${i}` : `win-p2-${i}`);
                     if (radio) radio.checked = true;
                 }
+                updateWinnerVisibility(i);
             }
         }
 
@@ -414,6 +426,7 @@
             const state = gameStates[gameNum - 1];
             if (playerNum === 1) state.p1Civ = civName;
             if (playerNum === 2) state.p2Civ = civName;
+            updateWinnerVisibility(gameNum);
             if (!connected) return;
             const prefix = `P${playerNum} `;
             await enableSceneItemExclusively(
