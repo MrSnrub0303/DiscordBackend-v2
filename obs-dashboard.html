@@ -135,7 +135,7 @@
             padding: 0 0.15rem;
         }
         .bo-row label { white-space: nowrap; }
-        .bo-row select { width: 70px; padding: 0.25rem 0.4rem; flex-shrink: 0; }
+        .bo-row select { width: auto; min-width: 55px; padding: 0.25rem 0.4rem; flex-shrink: 0; }
 
         /* ── Game Rows ── */
         .game-row {
@@ -516,11 +516,14 @@
             arrow.style.transform = collapsed ? 'rotate(-90deg)' : '';
         }
 
-        /* Uses GetSceneItemList (direct scene items, not groups) */
+        /* Searches direct scene items first, then one level inside groups/folders */
         async function setSceneItemEnabled(sceneName, targetSourceName, allPossibleSourceNames) {
             if (!connected) return;
             try {
                 const { sceneItems } = await obs.call('GetSceneItemList', { sceneName });
+
+                // Pass 1: direct items in the scene
+                let found = false;
                 for (const item of sceneItems) {
                     if (allPossibleSourceNames.includes(item.sourceName)) {
                         await obs.call('SetSceneItemEnabled', {
@@ -528,7 +531,26 @@
                             sceneItemId: item.sceneItemId,
                             sceneItemEnabled: item.sourceName === targetSourceName
                         });
+                        found = true;
                     }
+                }
+
+                if (found) return;
+
+                // Pass 2: search inside groups/folders one level deep
+                for (const item of sceneItems) {
+                    try {
+                        const { sceneItems: nested } = await obs.call('GetGroupSceneItemList', { sceneName: item.sourceName });
+                        for (const nItem of nested) {
+                            if (allPossibleSourceNames.includes(nItem.sourceName)) {
+                                await obs.call('SetSceneItemEnabled', {
+                                    sceneName: item.sourceName,
+                                    sceneItemId: nItem.sceneItemId,
+                                    sceneItemEnabled: nItem.sourceName === targetSourceName
+                                });
+                            }
+                        }
+                    } catch (e) { /* not a group, skip */ }
                 }
             } catch (e) {}
         }
