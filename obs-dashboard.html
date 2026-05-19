@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ESOC OBS Dashboard</title>
+    <!-- Use Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;800&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/obs-websocket-js@5.0.2/dist/obs-ws.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #1a110a;
+            --wood-bg: #2d1d11;
+            --wood-light: #442b19;
+            --gold-light: #fcd975;
+            --gold-base: #b48c36;
+            --gold-dark: #634b17;
+            --text-main: #ffffff;
+            --text-muted: #e4ceaa;
+            --danger: #991b1b;
+            --success: #166534;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif; /* Keep outfit for inputs/small text for readability */
+        }
+
+        h1, h2, h3, .score-display, button, label {
+            font-family: 'Cinzel', serif;
+        }
+
+        body {
+            background: radial-gradient(circle at center, #2d1d11 0%, #1a110a 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 1rem;
+            animation: fadeInDown 0.5s ease;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            color: #fce8a1;
+            text-shadow: 0 2px 4px rgba(0,0,0,1), 0 0 10px rgba(252, 217, 117, 0.3);
+            letter-spacing: 2px;
+        }
+
+        .glass-panel {
+            background: rgba(26, 17, 10, 0.95);
+            border: 2px solid var(--gold-dark);
+            border-radius: 4px;
+            padding: 1.25rem;
+            box-shadow: inset 0 0 20px rgba(0,0,0,0.8), 0 4px 16px rgba(0,0,0,0.8);
+            margin-bottom: 1rem;
+            width: 100%;
+            max-width: 950px;
+            animation: fadeInUp 0.5s ease backwards;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .panel-header h2 {
+            font-size: 1.25rem;
+            color: var(--gold-light);
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 800;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+
+        input, select {
+            background: rgba(0, 0, 0, 0.6);
+            border: 1px solid var(--gold-dark);
+            color: var(--text-main);
+            padding: 0.5rem 0.75rem;
+            border-radius: 2px;
+            font-size: 0.9rem;
+            outline: none;
+            transition: all 0.2s ease;
+            font-weight: 600;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--gold-light);
+            box-shadow: 0 0 0 2px rgba(252, 217, 117, 0.2);
+        }
+
+        select option {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+        }
+
+        button {
+            background: linear-gradient(to bottom, #442b19, #2d1d11);
+            color: var(--gold-light);
+            border: 1px solid var(--gold-dark);
+            padding: 0.5rem 1rem;
+            border-radius: 2px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-align: center;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: linear-gradient(to bottom, #5a3a22, #3b2617);
+            border-color: var(--gold-base);
+            transform: translateY(-1px);
+        }
+        button:active { transform: translateY(0); }
+
+        .btn-sync {
+            background: linear-gradient(to bottom, var(--gold-base), var(--gold-dark));
+            color: #1a110a;
+            text-shadow: none;
+            font-weight: 800;
+        }
+        .btn-sync:hover {
+            background: linear-gradient(to bottom, var(--gold-light), var(--gold-base));
+            color: #000;
+        }
+
+        .btn-danger {
+            background: linear-gradient(to bottom, #7f1d1d, #450a0a);
+            color: var(--gold-light);
+            border-color: #991b1b;
+        }
+        .btn-danger:hover {
+            background: linear-gradient(to bottom, #991b1b, #7f1d1d);
+            border-color: #ef4444;
+            color: #fff;
+        }
+
+        .btn-outline {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--gold-dark);
+            color: var(--text-main);
+            box-shadow: none;
+        }
+        .btn-outline.active-p1, .btn-outline.active-p2 {
+            background: linear-gradient(to bottom, var(--gold-base), var(--gold-dark));
+            border-color: var(--gold-light);
+            color: #1a110a;
+            font-weight: 800;
+            text-shadow: none;
+            box-shadow: inset 0 0 5px rgba(255,255,255,0.3);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 2px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(153, 27, 27, 0.4);
+            color: #fca5a5;
+            border: 1px solid #991b1b;
+        }
+        .status-badge.connected {
+            background: rgba(22, 101, 52, 0.4);
+            color: #86efac;
+            border: 1px solid #166534;
+        }
+
+        /* Collapsible details */
+        details summary {
+            cursor: pointer;
+            user-select: none;
+            outline: none;
+            font-weight: 600;
+            color: var(--text-muted);
+            transition: color 0.2s;
+            font-family: 'Cinzel', serif;
+        }
+        details summary:hover { color: var(--gold-light); }
+        details[open] summary { margin-bottom: 1rem; color: var(--gold-light); }
+
+        /* Compact Game Row */
+        .game-row {
+            display: grid;
+            grid-template-columns: 60px 1fr 1fr 220px;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--gold-dark);
+            transition: background 0.2s;
+        }
+        .game-row:last-child { border-bottom: none; }
+        .game-row:hover { background: rgba(252, 217, 117, 0.05); }
+
+        .game-row .game-label {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--gold-base);
+            font-family: 'Cinzel', serif;
+        }
+        .game-row select { width: 100%; }
+        .winner-group {
+            display: flex;
+            gap: 0.25rem;
+        }
+        .winner-group button {
+            flex: 1;
+            padding: 0.4rem 0.2rem;
+            font-size: 0.8rem;
+        }
+
+        .score-display {
+            font-size: 2rem;
+            font-weight: 800;
+            color: #fce8a1;
+            margin-left: auto;
+            text-shadow: 0 2px 4px rgba(0,0,0,1), 0 0 10px rgba(252, 217, 117, 0.3);
+        }
+
+        /* Animations */
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeInDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>ESOC Dashboard</h1>
+    </header>
+
+    <!-- Connection Panel -->
+    <div class="glass-panel" style="animation-delay: 0.1s;">
+        <details id="conn-details" open>
+            <summary class="panel-header" style="margin-bottom: 0;">
+                <span>OBS Connection Settings</span>
+                <span id="conn-status" class="status-badge">Disconnected</span>
+            </summary>
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>WebSocket URL</label>
+                    <input type="text" id="obs-url" value="ws://127.0.0.1:4455">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="obs-pass" value="RoyplmJZZXNdwUzL">
+                </div>
+            </div>
+            <button onclick="connectOBS()" style="margin-top: 0.75rem; width: 100%;">Connect</button>
+        </details>
+    </div>
+
+    <!-- General Info Panel -->
+    <div class="glass-panel" style="animation-delay: 0.2s;">
+        <div class="panel-header">
+            <h2>Match Info</h2>
+            <div class="score-display"><span id="score-p1">0</span> - <span id="score-p2">0</span></div>
+        </div>
+
+        <div class="grid-2" style="margin-bottom: 0.75rem;">
+            <div class="form-group">
+                <label>Player 1 Name</label>
+                <input type="text" id="p1-name" placeholder="Player 1">
+            </div>
+            <div class="form-group">
+                <label>Player 2 Name</label>
+                <input type="text" id="p2-name" placeholder="Player 2">
+            </div>
+            <div class="form-group">
+                <label>Caster 1 (Host)</label>
+                <input type="text" id="host-1" placeholder="Caster 1">
+            </div>
+            <div class="form-group">
+                <label>Caster 2 (Host)</label>
+                <input type="text" id="host-2" placeholder="Caster 2">
+            </div>
+        </div>
+        <div class="grid-2">
+            <button class="btn-sync" onclick="syncMatchInfo()">Sync Info to OBS</button>
+            <button class="btn-danger" onclick="resetAll()">Reset All Info & Games</button>
+        </div>
+    </div>
+
+    <!-- Games Draft Panel -->
+    <div class="glass-panel" style="animation-delay: 0.3s; padding: 0.5rem 1.25rem;">
+        <div class="panel-header" style="margin-top: 0.75rem;">
+            <h2>Series Draft & Results</h2>
+            <div class="form-group" style="flex-direction: row; align-items: center; gap: 0.5rem;">
+                <label>Best Of:</label>
+                <select id="bo-select" style="width: 70px; padding: 0.25rem 0.5rem;" onchange="updateBO()">
+                    <option value="3">3</option>
+                    <option value="5">5</option>
+                    <option value="7">7</option>
+                    <option value="9" selected>9</option>
+                </select>
+            </div>
+        </div>
+
+        <div id="games-container" style="margin-top: 0.5rem;">
+            <!-- Game Rows Injected Here -->
+        </div>
+    </div>
+
+    <script>
+        const obs = new OBSWebSocket();
+        let connected = false;
+
+        const civs = ['Aztec', 'British', 'Chinese', 'Danish', 'Dutch', 'Ethiopia', 'French', 'Germany', 'Haudenosaunee', 'Hausa', 'Inca', 'India', 'Italy', 'Japan', 'Lakota', 'Malta', 'Mexico', 'Ottoman', 'Polish', 'Portuguese', 'Russia', 'Spanish', 'Sweden', 'USA'];
+
+        let gameStates = Array.from({length: 9}, (_, i) => ({
+            gameNum: i + 1,
+            p1Civ: '',
+            p2Civ: '',
+            winner: null
+        }));
+
+        function initUI() {
+            const container = document.getElementById('games-container');
+            container.innerHTML = '';
+
+            const bo = parseInt(document.getElementById('bo-select').value);
+
+            for(let i=1; i<=bo; i++) {
+                const civOptions = `<option value="">Civ</option>` + civs.map(c => `<option value="${c}">${c}</option>`).join('');
+
+                const html = `
+                    <div class="game-row" id="game-row-${i}">
+                        <div class="game-label">Game ${i}</div>
+                        <select id="p1-civ-${i}" onchange="setCiv(${i}, 1, this.value)">
+                            ${civOptions}
+                        </select>
+                        <select id="p2-civ-${i}" onchange="setCiv(${i}, 2, this.value)">
+                            ${civOptions}
+                        </select>
+                        <div class="winner-group">
+                            <button class="btn-outline" id="win-p1-${i}" onclick="setWinner(${i}, 1)">P1 Win</button>
+                            <button class="btn-outline" id="win-p2-${i}" onclick="setWinner(${i}, 2)">P2 Win</button>
+                            <button class="btn-outline" onclick="resetGame(${i})" style="flex: 0.5; color: var(--text-muted);">Reset</button>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', html);
+
+                // Restore state if repopulated
+                const state = gameStates[i-1];
+                if(state.p1Civ) document.getElementById(`p1-civ-${i}`).value = state.p1Civ;
+                if(state.p2Civ) document.getElementById(`p2-civ-${i}`).value = state.p2Civ;
+                if(state.winner) {
+                    const btn = document.getElementById(state.winner === 1 ? `win-p1-${i}` : `win-p2-${i}`);
+                    if(btn) btn.classList.add(`active-p${state.winner}`);
+                }
+            }
+        }
+
+        function updateBO() {
+            initUI();
+            recalculateScore();
+        }
+
+        async function connectOBS() {
+            const url = document.getElementById('obs-url').value;
+            const password = document.getElementById('obs-pass').value;
+            const status = document.getElementById('conn-status');
+
+            try {
+                await obs.connect(url, password, { rpcVersion: 1 });
+                connected = true;
+                status.textContent = 'Connected';
+                status.className = 'status-badge connected';
+                document.getElementById('conn-details').open = false; // Auto-hide
+            } catch (error) {
+                console.error('Failed to connect', error);
+                status.textContent = 'Error';
+                status.className = 'status-badge';
+                alert('Failed to connect to OBS WebSocket. Ensure OBS is running and WebSocket is enabled on port 4455.');
+            }
+        }
+
+        obs.on('ConnectionClosed', () => {
+            connected = false;
+            const status = document.getElementById('conn-status');
+            status.textContent = 'Disconnected';
+            status.className = 'status-badge';
+            document.getElementById('conn-details').open = true; // Auto-expand on disconnect
+        });
+
+        async function updateOBSInputText(inputName, textValue) {
+            if(!connected) return;
+            try {
+                await obs.call('SetInputSettings', {
+                    inputName: inputName,
+                    inputSettings: { text: textValue }
+                });
+            } catch (e) {}
+        }
+
+        async function syncMatchInfo() {
+            const p1 = document.getElementById('p1-name').value;
+            const p2 = document.getElementById('p2-name').value;
+            const h1 = document.getElementById('host-1').value;
+            const h2 = document.getElementById('host-2').value;
+
+            await updateOBSInputText('Player 1 Name', p1);
+            await updateOBSInputText('Player 2 Name', p2);
+            await updateOBSInputText('Host Tag 1', h1);
+            await updateOBSInputText('Host Tag 2', h2);
+        }
+
+        async function enableSceneItemExclusively(sceneName, targetSourceName, allPossibleSourceNames) {
+            if(!connected) return;
+            try {
+                const { sceneItems } = await obs.call('GetGroupSceneItemList', { sceneName: sceneName });
+                for (const item of sceneItems) {
+                    if (allPossibleSourceNames.includes(item.sourceName)) {
+                        const shouldEnable = (item.sourceName === targetSourceName);
+                        await obs.call('SetSceneItemEnabled', {
+                            sceneName: sceneName,
+                            sceneItemId: item.sceneItemId,
+                            sceneItemEnabled: shouldEnable
+                        });
+                    }
+                }
+            } catch(e) { }
+        }
+
+        async function setCiv(gameNum, playerNum, civName) {
+            const state = gameStates[gameNum - 1];
+            if (playerNum === 1) state.p1Civ = civName;
+            if (playerNum === 2) state.p2Civ = civName;
+
+            if(!connected) return;
+            const sceneName = `Game ${gameNum}`;
+            const prefix = `P${playerNum} `;
+            const targetName = civName ? `${prefix}${civName}` : null;
+            const allPossible = civs.map(c => `${prefix}${c}`);
+            await enableSceneItemExclusively(sceneName, targetName, allPossible);
+        }
+
+        async function setWinner(gameNum, winner) {
+            const state = gameStates[gameNum - 1];
+            state.winner = winner;
+
+            const btnP1 = document.getElementById(`win-p1-${gameNum}`);
+            const btnP2 = document.getElementById(`win-p2-${gameNum}`);
+            if(btnP1) btnP1.classList.remove('active-p1');
+            if(btnP2) btnP2.classList.remove('active-p2');
+
+            if (winner === 1 && btnP1) btnP1.classList.add('active-p1');
+            if (winner === 2 && btnP2) btnP2.classList.add('active-p2');
+
+            recalculateScore();
+
+            if(!connected) return;
+            const sceneName = `Game ${gameNum}`;
+            const targetP1Vic = `RESULT${gameNum} P1 Victory`;
+            const targetP1Def = `RESULT${gameNum} P1 Defeat`;
+            const targetP2Vic = `RESULT${gameNum} P2 Victory`;
+            const targetP2Def = `RESULT${gameNum} P2 Defeat`;
+
+            const allResults = [targetP1Vic, targetP1Def, targetP2Vic, targetP2Def];
+            let activeResults = [];
+            if (winner === 1) activeResults = [targetP1Vic, targetP2Def];
+            else if (winner === 2) activeResults = [targetP2Vic, targetP1Def];
+
+            try {
+                const { sceneItems } = await obs.call('GetGroupSceneItemList', { sceneName: sceneName });
+                for (const item of sceneItems) {
+                    if (allResults.includes(item.sourceName)) {
+                        const shouldEnable = activeResults.includes(item.sourceName);
+                        await obs.call('SetSceneItemEnabled', {
+                            sceneName: sceneName,
+                            sceneItemId: item.sceneItemId,
+                            sceneItemEnabled: shouldEnable
+                        });
+                    }
+                }
+            } catch(e) {}
+        }
+
+        function recalculateScore() {
+            let p1Score = 0;
+            let p2Score = 0;
+            const bo = parseInt(document.getElementById('bo-select').value);
+
+            for (let i = 0; i < bo; i++) {
+                if (gameStates[i].winner === 1) p1Score++;
+                if (gameStates[i].winner === 2) p2Score++;
+            }
+
+            document.getElementById('score-p1').textContent = p1Score;
+            document.getElementById('score-p2').textContent = p2Score;
+            updateOBSInputText('Player 1 Score', p1Score.toString());
+            updateOBSInputText('Player 2 Score', p2Score.toString());
+        }
+
+        async function resetGame(gameNum) {
+            const p1Civ = document.getElementById(`p1-civ-${gameNum}`);
+            if (p1Civ) p1Civ.value = '';
+            const p2Civ = document.getElementById(`p2-civ-${gameNum}`);
+            if (p2Civ) p2Civ.value = '';
+
+            gameStates[gameNum-1].p1Civ = '';
+            gameStates[gameNum-1].p2Civ = '';
+            await setCiv(gameNum, 1, '');
+            await setCiv(gameNum, 2, '');
+            await setWinner(gameNum, null);
+        }
+
+        async function resetAll() {
+            if (!confirm("Are you sure you want to reset all players, casters, civs, and scores?")) return;
+
+            document.getElementById('p1-name').value = '';
+            document.getElementById('p2-name').value = '';
+            document.getElementById('host-1').value = '';
+            document.getElementById('host-2').value = '';
+            await syncMatchInfo();
+
+            for (let i = 1; i <= 9; i++) {
+                await resetGame(i);
+            }
+        }
+
+        window.onload = initUI;
+    </script>
+</body>
+</html>

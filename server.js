@@ -3458,6 +3458,11 @@ app.get("/api/monitor/logs", (_req, res) => {
   res.json({ logs: LogBuffer.getAll() });
 });
 
+// GET /obs-dashboard — serves the ESOC Admin OBS dashboard (no auth; OBS loads it directly as a browser dock)
+app.get("/obs-dashboard", (_req, res) => {
+  res.sendFile(path.join(__dirname, "obs-dashboard.html"));
+});
+
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
   if (!(await isMonitorAuthorized(req))) {
