@@ -291,7 +291,7 @@ async function poll() {
     const toRecheckIds = [];
     for (const [id, session] of knownSessions) {
       if (!seenIds.has(id)) {
-        if (now - session.firstSeen < GHOST_CAP_MS) toRecheckIds.push(id);
+        if (now - session.lastSeen < GHOST_CAP_MS) toRecheckIds.push(id);
         else knownSessions.delete(id);
       }
     }
@@ -301,18 +301,22 @@ async function poll() {
         const batch = toRecheckIds.slice(i, i + BATCH_SIZE);
         const results = await getAdvertisements(batch, sid, cookies);
         const stillActive = new Set(results.filter(m => m[8] === 'SESSION_MATCH_KEY' && m[24] === null).map(m => m[0]));
-        batch.forEach(id => { if (!stillActive.has(id)) knownSessions.delete(id); });
+        batch.forEach(id => {
+          if (!stillActive.has(id)) knownSessions.delete(id);
+          else knownSessions.get(id).lastSeen = now;
+        });
         await delay(80);
       }
     }
 
+    // Expire sessions not seen recently — active sessions (lastSeen = now) are never touched here
     for (const [id, session] of knownSessions) {
-      if (now - session.firstSeen >= GHOST_CAP_MS) knownSessions.delete(id);
+      if (now - session.lastSeen >= GHOST_CAP_MS) knownSessions.delete(id);
     }
 
-    // Expire sessionFirstSeen entries that are truly ancient (past the absolute cap)
+    // Expire sessionFirstSeen entries whose session is gone and the timestamp is old
     for (const [id, ts] of sessionFirstSeen) {
-      if (now - ts >= GHOST_CAP_MS) sessionFirstSeen.delete(id);
+      if (!knownSessions.has(id) && now - ts >= GHOST_CAP_MS) sessionFirstSeen.delete(id);
     }
 
     lastMaxId = currentMax;
