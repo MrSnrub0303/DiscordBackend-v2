@@ -109,6 +109,22 @@ async function ensureSteamClient() {
   steamClientInit = new Promise((resolve, reject) => {
     const client = new SteamUser();
     let guardCodeUsed = false;
+    let settled = false;
+
+    const settle = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(loginTimeout);
+      fn();
+    };
+
+    // Safety valve: if Steam never fires loggedOn/error/disconnected, reject after 45s
+    const loginTimeout = setTimeout(() => {
+      steamClientInit  = null;
+      steamClient      = null;
+      steamClientReady = false;
+      settle(() => reject(new Error('Steam login timed out after 45s')));
+    }, 45_000);
 
     const logonOpts = {
       accountName: process.env.STEAM_USERNAME,
@@ -128,7 +144,7 @@ async function ensureSteamClient() {
         guardNeeded     = true;
         steamClientInit = null;
         client.logOff();
-        reject(new Error('needs_guard_code'));
+        settle(() => reject(new Error('needs_guard_code')));
       }
     });
 
@@ -143,15 +159,22 @@ async function ensureSteamClient() {
       steamClientReady = true;
       steamClientInit  = null;
       console.log('[RankedQueue] Steam client logged in — will stay connected for process lifetime');
-      resolve();
+      settle(() => resolve());
     });
 
-    // Mark client gone so next poll reconnects; does not reject (poll handles the retry)
     client.on('disconnected', (eresult, msg) => {
       if (steamClient === client) {
+        // Post-login disconnect — mark for reconnect on the next poll
         steamClient      = null;
         steamClientReady = false;
+        steamClientInit  = null;
         console.warn(`[RankedQueue] Steam client disconnected (eresult=${eresult}) — will reconnect on next poll`);
+      } else {
+        // Pre-login disconnect: connection failed before loggedOn fired.
+        // Without this branch the steamClientInit Promise hangs forever, locking pollInProgress.
+        steamClientInit = null;
+        console.warn(`[RankedQueue] Steam connection lost before login (eresult=${eresult}) — will retry on next poll`);
+        settle(() => reject(new Error(`Steam connection lost before login (eresult=${eresult})`)));
       }
     });
 
@@ -159,7 +182,7 @@ async function ensureSteamClient() {
       steamClientInit  = null;
       steamClient      = null;
       steamClientReady = false;
-      reject(new Error(`Steam login: ${e.message}`));
+      settle(() => reject(new Error(`Steam login: ${e.message}`)));
     });
 
     client.logOn(logonOpts);
@@ -256,6 +279,13 @@ async function poll() {
   if (pollInProgress) return;
   if (guardNeeded && !pendingCode) return; // waiting for Guard code from UI
   pollInProgress = true;
+
+  // Absolute safety net: if the poll hangs (e.g. a Promise that never settles),
+  // reset pollInProgress after 120 s so the next scheduled tick can retry.
+  const pollWatchdog = setTimeout(() => {
+    console.error('[RankedQueue] Poll watchdog fired — poll has been running for >120s, resetting pollInProgress');
+    pollInProgress = false;
+  }, 120_000);
 
   try {
     const { sid, cookies } = await getSteamSession();
@@ -384,6 +414,7 @@ async function poll() {
       }
     }
   } finally {
+    clearTimeout(pollWatchdog);
     pollInProgress = false;
   }
 }
