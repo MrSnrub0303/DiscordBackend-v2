@@ -3469,7 +3469,7 @@ app.get("/api/coop/download/:campaignId/:actId/:levelId", (req, res) => {
   if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
     return res.status(400).json({ error: "Invalid parameters" });
   }
-  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscen`;
+  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
   const filePath = path.join(__dirname, "coop-scenarios", filename);
   if (!fsSync.existsSync(filePath)) {
     return res.status(404).json({ error: "Scenario not yet available" });
@@ -3483,7 +3483,7 @@ app.get("/coop/download/:campaignId/:actId/:levelId", (req, res) => {
   if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
     return res.status(400).json({ error: "Invalid parameters" });
   }
-  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscen`;
+  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
   const filePath = path.join(__dirname, "coop-scenarios", filename);
   if (!fsSync.existsSync(filePath)) {
     return res.status(404).json({ error: "Scenario not yet available" });
