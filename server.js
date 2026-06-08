@@ -3493,6 +3493,88 @@ app.get("/coop/download/:campaignId/:actId/:levelId", (req, res) => {
   res.sendFile(filePath);
 });
 
+// GET /api/coop/install/:campaignId/:actId/:levelId  (serves a .bat auto-installer)
+function buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl) {
+  const scenarioFile = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
+  const downloadUrl  = `${serverUrl}/api/coop/download/${campaignId}/${actId}/${levelId}`;
+  const lines = [
+    '@echo off',
+    'setlocal enabledelayedexpansion',
+    `set "FILE_URL=${downloadUrl}"`,
+    `set "FILE_NAME=${scenarioFile}"`,
+    'set "BASE=%USERPROFILE%\\Games\\Age of Empires 3 DE"',
+    'set "FOUND=0"',
+    '',
+    'if not exist "%BASE%\\" (',
+    '    echo [ERROR] Age of Empires 3 DE folder not found.',
+    '    echo Expected: %BASE%',
+    '    echo Please ensure the game is installed.',
+    '    goto :end',
+    ')',
+    '',
+    'echo Scanning for AoE3 DE profile folders...',
+    'echo.',
+    '',
+    'for /D %%d in ("%BASE%\\*") do (',
+    '    if exist "%%d\\Scenario\\" (',
+    '        if exist "%%d\\Scenario\\%FILE_NAME%" (',
+    '            echo [SKIP] Already installed:',
+    '            echo        %%d\\Scenario\\%FILE_NAME%',
+    '            set "FOUND=1"',
+    '        ) else (',
+    '            echo [DOWNLOAD] Installing to:',
+    '            echo            %%d\\Scenario\\',
+    '            curl -L --progress-bar -o "%%d\\Scenario\\%FILE_NAME%" "%FILE_URL%"',
+    '            if !ERRORLEVEL! EQU 0 (',
+    '                echo [OK] Installed successfully.',
+    '                set "FOUND=1"',
+    '            ) else (',
+    '                echo [FAIL] Download failed. Check your internet connection.',
+    '            )',
+    '        )',
+    '        echo.',
+    '    )',
+    ')',
+    '',
+    'if "!FOUND!"=="0" (',
+    '    echo [INFO] No valid Scenario folder found under:',
+    '    echo        %BASE%',
+    '    echo Please check your game installation.',
+    ')',
+    '',
+    ':end',
+    'echo.',
+    'echo Press any key to close...',
+    'pause > nul',
+  ];
+  return lines.join('\r\n');
+}
+
+app.get("/api/coop/install/:campaignId/:actId/:levelId", (req, res) => {
+  const { campaignId, actId, levelId } = req.params;
+  if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
+    return res.status(400).json({ error: "Invalid parameters" });
+  }
+  const levelName  = (req.query.name || 'Scenario').replace(/[^\w\s'!?-]/g, '').trim().slice(0, 60);
+  const serverUrl  = process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com';
+  const bat        = buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl);
+  res.setHeader("Content-Disposition", `attachment; filename="Install ${levelName}.bat"`);
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send(bat);
+});
+app.get("/coop/install/:campaignId/:actId/:levelId", (req, res) => {
+  const { campaignId, actId, levelId } = req.params;
+  if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
+    return res.status(400).json({ error: "Invalid parameters" });
+  }
+  const levelName  = (req.query.name || 'Scenario').replace(/[^\w\s'!?-]/g, '').trim().slice(0, 60);
+  const serverUrl  = process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com';
+  const bat        = buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl);
+  res.setHeader("Content-Disposition", `attachment; filename="Install ${levelName}.bat"`);
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send(bat);
+});
+
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
   if (!(await isMonitorAuthorized(req))) {
