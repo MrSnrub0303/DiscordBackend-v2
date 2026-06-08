@@ -3463,6 +3463,36 @@ app.get("/obs-dashboard", (_req, res) => {
   res.sendFile(path.join(__dirname, "obs-dashboard.html"));
 });
 
+// GET /api/coop/download/:campaignId/:actId/:levelId  (serves AoE3 scenario files)
+app.get("/api/coop/download/:campaignId/:actId/:levelId", (req, res) => {
+  const { campaignId, actId, levelId } = req.params;
+  if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
+    return res.status(400).json({ error: "Invalid parameters" });
+  }
+  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscen`;
+  const filePath = path.join(__dirname, "coop-scenarios", filename);
+  if (!fsSync.existsSync(filePath)) {
+    return res.status(404).json({ error: "Scenario not yet available" });
+  }
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.sendFile(filePath);
+});
+app.get("/coop/download/:campaignId/:actId/:levelId", (req, res) => {
+  const { campaignId, actId, levelId } = req.params;
+  if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
+    return res.status(400).json({ error: "Invalid parameters" });
+  }
+  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscen`;
+  const filePath = path.join(__dirname, "coop-scenarios", filename);
+  if (!fsSync.existsSync(filePath)) {
+    return res.status(404).json({ error: "Scenario not yet available" });
+  }
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.setHeader("Content-Type", "application/octet-stream");
+  res.sendFile(filePath);
+});
+
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
   if (!(await isMonitorAuthorized(req))) {
