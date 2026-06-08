@@ -3464,34 +3464,24 @@ app.get("/obs-dashboard", (_req, res) => {
 });
 
 // GET /api/coop/download/:campaignId/:actId/:levelId  (serves AoE3 scenario files)
-app.get("/api/coop/download/:campaignId/:actId/:levelId", (req, res) => {
+// ?name=Breakout  →  looks for "Breakout COOP.age3Yscn" in coop-scenarios/
+function handleDownloadRequest(req, res) {
   const { campaignId, actId, levelId } = req.params;
   if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
     return res.status(400).json({ error: "Invalid parameters" });
   }
-  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
-  const filePath = path.join(__dirname, "coop-scenarios", filename);
+  const levelName = (req.query.name || '').replace(/[<>:"/\\|*\x00-\x1f]/g, '').trim();
+  const filename  = levelName ? `${levelName} COOP.age3Yscn` : `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
+  const filePath  = path.join(__dirname, "coop-scenarios", filename);
   if (!fsSync.existsSync(filePath)) {
     return res.status(404).json({ error: "Scenario not yet available" });
   }
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   res.setHeader("Content-Type", "application/octet-stream");
   res.sendFile(filePath);
-});
-app.get("/coop/download/:campaignId/:actId/:levelId", (req, res) => {
-  const { campaignId, actId, levelId } = req.params;
-  if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
-    return res.status(400).json({ error: "Invalid parameters" });
-  }
-  const filename = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
-  const filePath = path.join(__dirname, "coop-scenarios", filename);
-  if (!fsSync.existsSync(filePath)) {
-    return res.status(404).json({ error: "Scenario not yet available" });
-  }
-  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.sendFile(filePath);
-});
+}
+app.get("/api/coop/download/:campaignId/:actId/:levelId", handleDownloadRequest);
+app.get("/coop/download/:campaignId/:actId/:levelId",     handleDownloadRequest);
 
 // GET /api/coop/install/:campaignId/:actId/:levelId  (serves a .bat auto-installer)
 function buildBatInstaller(scenarioFile, downloadUrl) {
@@ -3559,8 +3549,8 @@ function handleInstallRequest(req, res) {
   if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
     return res.status(400).json({ error: "Invalid parameters" });
   }
-  const levelName    = (req.query.name || 'Scenario').replace(/[^\w\s'!?-]/g, '').trim().slice(0, 60);
-  const scenarioFile = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
+  const levelName    = (req.query.name || 'Scenario').replace(/[<>:"/\\|*\x00-\x1f]/g, '').trim().slice(0, 60);
+  const scenarioFile = `${levelName} COOP.age3Yscn`;
   // Client passes the exact download URL it already knows; fall back to server env var
   const downloadUrl  = req.query.dlurl
     ? decodeURIComponent(req.query.dlurl)
