@@ -3494,9 +3494,7 @@ app.get("/coop/download/:campaignId/:actId/:levelId", (req, res) => {
 });
 
 // GET /api/coop/install/:campaignId/:actId/:levelId  (serves a .bat auto-installer)
-function buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl) {
-  const scenarioFile = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
-  const downloadUrl  = `${serverUrl}/api/coop/download/${campaignId}/${actId}/${levelId}`;
+function buildBatInstaller(scenarioFile, downloadUrl) {
   const lines = [
     '@echo off',
     'setlocal enabledelayedexpansion',
@@ -3512,32 +3510,38 @@ function buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl) {
     '    goto :end',
     ')',
     '',
-    'echo Scanning for AoE3 DE profile folders...',
+    'echo Scanning for AoE3 DE Steam profile folders...',
     'echo.',
     '',
     'for /D %%d in ("%BASE%\\*") do (',
-    '    if exist "%%d\\Scenario\\" (',
-    '        if exist "%%d\\Scenario\\%FILE_NAME%" (',
-    '            echo [SKIP] Already installed:',
-    '            echo        %%d\\Scenario\\%FILE_NAME%',
-    '            set "FOUND=1"',
-    '        ) else (',
-    '            echo [DOWNLOAD] Installing to:',
-    '            echo            %%d\\Scenario\\',
-    '            curl -L --progress-bar -o "%%d\\Scenario\\%FILE_NAME%" "%FILE_URL%"',
-    '            if !ERRORLEVEL! EQU 0 (',
-    '                echo [OK] Installed successfully.',
+    '    set "DNAME=%%~nxd"',
+    '    set "ISNUM=1"',
+    '    for /F "delims=0123456789" %%c in ("!DNAME!") do set "ISNUM=0"',
+    '    rem Only process all-numeric folders with at least 10 digits (valid Steam IDs)',
+    '    if "!ISNUM!"=="1" if not "!DNAME:~9,1!"=="" (',
+    '        if exist "%%d\\Scenario\\" (',
+    '            if exist "%%d\\Scenario\\%FILE_NAME%" (',
+    '                echo [SKIP] Already installed:',
+    '                echo        %%d\\Scenario\\%FILE_NAME%',
     '                set "FOUND=1"',
     '            ) else (',
-    '                echo [FAIL] Download failed. Check your internet connection.',
+    '                echo [DOWNLOAD] Installing to:',
+    '                echo            %%d\\Scenario\\',
+    '                curl -L --progress-bar -o "%%d\\Scenario\\%FILE_NAME%" "%FILE_URL%"',
+    '                if !ERRORLEVEL! EQU 0 (',
+    '                    echo [OK] Installed successfully.',
+    '                    set "FOUND=1"',
+    '                ) else (',
+    '                    echo [FAIL] Download failed. Check your internet connection.',
+    '                )',
     '            )',
+    '            echo.',
     '        )',
-    '        echo.',
     '    )',
     ')',
     '',
     'if "!FOUND!"=="0" (',
-    '    echo [INFO] No valid Scenario folder found under:',
+    '    echo [INFO] No valid Steam ID Scenario folder found under:',
     '    echo        %BASE%',
     '    echo Please check your game installation.',
     ')',
@@ -3550,30 +3554,24 @@ function buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl) {
   return lines.join('\r\n');
 }
 
-app.get("/api/coop/install/:campaignId/:actId/:levelId", (req, res) => {
+function handleInstallRequest(req, res) {
   const { campaignId, actId, levelId } = req.params;
   if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
     return res.status(400).json({ error: "Invalid parameters" });
   }
-  const levelName  = (req.query.name || 'Scenario').replace(/[^\w\s'!?-]/g, '').trim().slice(0, 60);
-  const serverUrl  = process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com';
-  const bat        = buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl);
+  const levelName    = (req.query.name || 'Scenario').replace(/[^\w\s'!?-]/g, '').trim().slice(0, 60);
+  const scenarioFile = `${campaignId}act${actId}lvl${levelId}.age3Yscn`;
+  // Client passes the exact download URL it already knows; fall back to server env var
+  const downloadUrl  = req.query.dlurl
+    ? decodeURIComponent(req.query.dlurl)
+    : `${process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com'}/api/coop/download/${campaignId}/${actId}/${levelId}`;
+  const bat = buildBatInstaller(scenarioFile, downloadUrl);
   res.setHeader("Content-Disposition", `attachment; filename="Install ${levelName}.bat"`);
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.send(bat);
-});
-app.get("/coop/install/:campaignId/:actId/:levelId", (req, res) => {
-  const { campaignId, actId, levelId } = req.params;
-  if (!/^\d+$/.test(campaignId) || !/^\d+$/.test(actId) || !/^\d+$/.test(levelId)) {
-    return res.status(400).json({ error: "Invalid parameters" });
-  }
-  const levelName  = (req.query.name || 'Scenario').replace(/[^\w\s'!?-]/g, '').trim().slice(0, 60);
-  const serverUrl  = process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com';
-  const bat        = buildBatInstaller(campaignId, actId, levelId, levelName, serverUrl);
-  res.setHeader("Content-Disposition", `attachment; filename="Install ${levelName}.bat"`);
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.send(bat);
-});
+}
+app.get("/api/coop/install/:campaignId/:actId/:levelId", handleInstallRequest);
+app.get("/coop/install/:campaignId/:actId/:levelId",     handleInstallRequest);
 
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
