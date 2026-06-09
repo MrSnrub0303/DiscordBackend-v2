@@ -3563,6 +3563,116 @@ function handleInstallRequest(req, res) {
 app.get("/api/coop/install/:campaignId/:actId/:levelId", handleInstallRequest);
 app.get("/coop/install/:campaignId/:actId/:levelId",     handleInstallRequest);
 
+// GET /api/obs/setup-bat  (serves a .bat that configures OBS WebSocket + browser dock)
+// The bat runs a base64-encoded PowerShell script so no cmd.exe escaping is needed.
+function buildObsSetupBat(dashboardUrl) {
+  // PowerShell script — written as plain JS template literals.
+  // In template literals: \` → backtick (used for PS escape seqs like `r`n),
+  //                       \\ → backslash (used for regex \[ and path separators).
+  const psLines = [
+    `if (Get-Process -Name 'obs64' -ErrorAction SilentlyContinue) {`,
+    `  Write-Host '[WARNING] OBS Studio is running. Close it first, then run this script again.' -ForegroundColor Yellow`,
+    `  $null = Read-Host 'Press Enter to exit'`,
+    `  exit 1`,
+    `}`,
+    ``,
+    `$obsRoot  = Join-Path $env:APPDATA 'obs-studio'`,
+    `$globalIni = Join-Path $obsRoot 'global.ini'`,
+    `if (-not (Test-Path $globalIni)) {`,
+    `  Write-Host '[ERROR] OBS global.ini not found. Install OBS and launch it once first.' -ForegroundColor Red`,
+    `  $null = Read-Host 'Press Enter to exit'`,
+    `  exit 1`,
+    `}`,
+    ``,
+    `# ── Step 1: WebSocket settings ───────────────────────────────────────`,
+    `Write-Host '[1/3] Configuring OBS WebSocket settings...'`,
+    `try {`,
+    `  $txt = [IO.File]::ReadAllText($globalIni)`,
+    `  $txt = [regex]::Replace($txt, '(?ms)^\\[OBSWebSocket\\].*?(?=\\r?\\n\\[|\\z)', '')`,
+    `  $block = "\`r\`n[OBSWebSocket]\`r\`nServerEnabled=true\`r\`nServerPort=4455\`r\`nAuthRequired=true\`r\`nServerPassword=RoyplmJZZXNdwUzL\`r\`n"`,
+    `  [IO.File]::WriteAllText($globalIni, $txt.TrimEnd() + $block, [Text.Encoding]::UTF8)`,
+    `  Write-Host '[OK] WebSocket: port 4455, password set.' -ForegroundColor Green`,
+    `} catch {`,
+    `  Write-Host "[FAIL] Could not update global.ini: $_" -ForegroundColor Red`,
+    `  $null = Read-Host 'Press Enter to exit'; exit 1`,
+    `}`,
+    ``,
+    `# ── Step 2: Detect active profile ────────────────────────────────────`,
+    `Write-Host '[2/3] Reading active OBS profile...'`,
+    `$profileDir = $null; $inBasic = $false`,
+    `foreach ($line in [IO.File]::ReadAllLines($globalIni)) {`,
+    `  if ($line -eq '[Basic]') { $inBasic = $true; continue }`,
+    `  if ($line -match '^\\[') { $inBasic = $false }`,
+    `  if ($inBasic -and $line -match '^ProfileDir=(.+)') { $profileDir = $Matches[1]; break }`,
+    `}`,
+    `if (-not $profileDir) {`,
+    `  Write-Host '[WARN] Could not read active profile. Add the dock manually via Docks -> Custom Browser Docks.' -ForegroundColor Yellow`,
+    `} else {`,
+    `  Write-Host "[OK] Profile: $profileDir" -ForegroundColor Green`,
+    `  $basicIni = Join-Path $obsRoot "basic\\profiles\\$profileDir\\basic.ini"`,
+    `  if (-not (Test-Path $basicIni)) {`,
+    `    Write-Host '[WARN] Profile ini not found. Add the dock manually via Docks -> Custom Browser Docks.' -ForegroundColor Yellow`,
+    `  } else {`,
+    `    # ── Step 3: Browser dock ───────────────────────────────────────────`,
+    `    Write-Host '[3/3] Adding ESOC Docker browser dock...'`,
+    `    try {`,
+    `      $txt = [IO.File]::ReadAllText($basicIni)`,
+    `      $url = '${dashboardUrl}'`,
+    `      if ($txt -match 'ESOC Docker') {`,
+    `        Write-Host '[OK] ESOC Docker dock already configured.' -ForegroundColor Green`,
+    `      } elseif ($txt -match '(?m)^\\[ExtraBrowserDocks\\]') {`,
+    `        $m = [regex]::Match($txt, '(?m)^size=(\\d+)')`,
+    `        $n = if ($m.Success) { [int]$m.Groups[1].Value + 1 } else { 1 }`,
+    `        $entry = "$n\\Title=ESOC Docker\`r\`n$n\\Url=$url\`r\`n"`,
+    `        $txt   = [regex]::Replace($txt, '(?m)^size=\\d+', ($entry + "size=$n"))`,
+    `        [IO.File]::WriteAllText($basicIni, $txt, [Text.Encoding]::UTF8)`,
+    `        Write-Host '[OK] ESOC Docker dock added.' -ForegroundColor Green`,
+    `      } else {`,
+    `        $append = "\`r\`n\`r\`n[ExtraBrowserDocks]\`r\`n1\\Title=ESOC Docker\`r\`n1\\Url=$url\`r\`nsize=1\`r\`n"`,
+    `        [IO.File]::WriteAllText($basicIni, $txt.TrimEnd() + $append, [Text.Encoding]::UTF8)`,
+    `        Write-Host '[OK] ESOC Docker dock added.' -ForegroundColor Green`,
+    `      }`,
+    `    } catch {`,
+    `      Write-Host "[FAIL] Could not update dock: $_" -ForegroundColor Red`,
+    `    }`,
+    `  }`,
+    `}`,
+    ``,
+    `Write-Host ''`,
+    `Write-Host '==================================================='`,
+    `Write-Host ' Setup complete! Reopen OBS.' -ForegroundColor Cyan`,
+    `Write-Host ' ESOC Admin will appear in the Docks menu.' -ForegroundColor Cyan`,
+    `Write-Host '==================================================='`,
+  ];
+
+  const psScript = psLines.join('\n');
+  // PowerShell -EncodedCommand expects UTF-16LE base64
+  const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+
+  const batLines = [
+    '@echo off',
+    'echo ===================================================',
+    'echo  ESOC OBS Dashboard -- Automatic Setup',
+    'echo ===================================================',
+    'echo.',
+    `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+    'echo.',
+    'pause',
+  ];
+  return batLines.join('\r\n');
+}
+
+function handleObsSetupBatRequest(req, res) {
+  const defaultUrl = `${process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com'}/obs-dashboard`;
+  const url = req.query.url ? decodeURIComponent(req.query.url) : defaultUrl;
+  const bat = buildObsSetupBat(url);
+  res.setHeader("Content-Disposition", 'attachment; filename="Setup ESOC OBS Dashboard.bat"');
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.send(bat);
+}
+app.get("/api/obs/setup-bat", handleObsSetupBatRequest);
+app.get("/obs/setup-bat",     handleObsSetupBatRequest);
+
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
   if (!(await isMonitorAuthorized(req))) {
