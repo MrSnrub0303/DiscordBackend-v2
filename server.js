@@ -3602,7 +3602,7 @@ function buildObsSetupBat(dashboardUrl) {
     `}`,
     ``,
     `$url      = '${dashboardUrl}'`,
-    `$newDocks = "[{""name"":""ESOC Docker"",""url"":""$url""}]"`,
+    `$newDocks = "[{""title"":""ESOC Docker"",""url"":""$url""}]"`,
     ``,
     `# Step 2: Write ExtraBrowserDocks JSON to global.ini AND user.ini (if present)`,
     `# OBS 28+ reads from [BasicWindow] ExtraBrowserDocks in one of these files.`,
