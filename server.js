@@ -3594,13 +3594,13 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
     `  foreach ($item in ($rawJson | ConvertFrom-Json)) { $manifest += $item }`,
     `  Write-Host "  Found $($manifest.Count) file(s) on Drive." -ForegroundColor DarkGray`,
     `  foreach ($file in $manifest) {`,
-    `    $fileName = [string]$file.name`,
-    `    $fileId   = [string]$file.id`,
-    `    $dest     = Join-Path $localAssets $fileName`,
-    `    $needsDl  = (-not (Test-Path $dest)) -or ((Get-Item $dest).Length -ne [long]"$($file.size)")`,
+    `    $fileName    = [string]$file.name`,
+    `    $downloadUrl = [string]$file.downloadUrl`,
+    `    $dest        = Join-Path $localAssets $fileName`,
+    `    $needsDl     = (-not (Test-Path $dest)) -or ((Get-Item $dest).Length -ne [long]"$($file.size)")`,
     `    if ($needsDl) {`,
     `      Write-Host "  Downloading $fileName..." -ForegroundColor Yellow`,
-    `      Invoke-WebRequest -Uri "$serverUrl/api/obs/drive-download/$fileId" -OutFile $dest -UseBasicParsing -ErrorAction Stop`,
+    `      Invoke-WebRequest -Uri $downloadUrl -OutFile $dest -UseBasicParsing -ErrorAction Stop`,
     `      Write-Host "  [OK] $fileName" -ForegroundColor Green`,
     `    } else {`,
     `      Write-Host "  [--] $fileName already up-to-date." -ForegroundColor DarkGray`,
@@ -3800,7 +3800,13 @@ async function handleDriveManifest(req, res) {
         key: apiKey,
       },
     });
-    res.json(resp.data.files || []);
+    // Attach a direct download URL so the bat can download straight from Google
+    // rather than proxying through this server (avoids timeout on large MP4s).
+    const files = (resp.data.files || []).map(f => ({
+      ...f,
+      downloadUrl: `https://drive.google.com/uc?export=download&confirm=t&id=${f.id}`,
+    }));
+    res.json(files);
   } catch (err) {
     console.error('[Drive manifest]', err.response?.data || err.message);
     res.status(502).json({ error: 'Failed to fetch Drive manifest' });
