@@ -3565,7 +3565,7 @@ app.get("/coop/install/:campaignId/:actId/:levelId",     handleInstallRequest);
 
 // GET /api/obs/setup-bat  (serves a .bat that configures OBS WebSocket + browser dock)
 // The bat runs a base64-encoded PowerShell script so no cmd.exe escaping is needed.
-function buildObsSetupBat(dashboardUrl) {
+function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
   // PowerShell script — written as plain JS template literals.
   // In template literals: \` → backtick (used for PS escape seqs like `r`n),
   //                       \\ → backslash (used for regex \[ and path separators).
@@ -3579,6 +3579,67 @@ function buildObsSetupBat(dashboardUrl) {
     // UTF-8 WITHOUT BOM — OBS's INI parser breaks if a BOM is present.
     // [Text.Encoding]::UTF8 includes BOM, so we create the no-BOM variant explicitly.
     `$utf8 = New-Object System.Text.UTF8Encoding $false`,
+    `$ProgressPreference = 'SilentlyContinue'`,
+    ``,
+    `# ── Step 1: Download overlay assets ──────────────────────────────────`,
+    `$serverUrl   = '${serverBaseUrl}'`,
+    `$localAssets = Join-Path $env:USERPROFILE 'Downloads\\Overlay Assets 2.1'`,
+    `if (-not (Test-Path $localAssets)) { New-Item -ItemType Directory -Path $localAssets | Out-Null }`,
+    `Write-Host '[1/6] Downloading overlay assets...'`,
+    `try {`,
+    `  $manifest = @(Invoke-RestMethod -Uri "$serverUrl/api/obs/drive-manifest" -ErrorAction Stop)`,
+    `  Write-Host "  Found $($manifest.Count) file(s) on Drive." -ForegroundColor DarkGray`,
+    `  foreach ($file in $manifest) {`,
+    `    $dest    = Join-Path $localAssets $file.name`,
+    `    $needsDl = (-not (Test-Path $dest)) -or ((Get-Item $dest).Length -ne [long]$file.size)`,
+    `    if ($needsDl) {`,
+    `      Write-Host "  Downloading $($file.name)..." -ForegroundColor Yellow`,
+    `      Invoke-WebRequest -Uri "$serverUrl/api/obs/drive-download/$($file.id)" -OutFile $dest -UseBasicParsing -ErrorAction Stop`,
+    `      Write-Host "  [OK] $($file.name)" -ForegroundColor Green`,
+    `    } else {`,
+    `      Write-Host "  [--] $($file.name) already up-to-date." -ForegroundColor DarkGray`,
+    `    }`,
+    `  }`,
+    `  Write-Host '[OK] Assets ready.' -ForegroundColor Green`,
+    `} catch {`,
+    `  Write-Host "[FAIL] Asset download: $_" -ForegroundColor Red`,
+    `  $null = Read-Host 'Press Enter to exit'; exit 1`,
+    `}`,
+    ``,
+    `# ── Step 2: Install font ─────────────────────────────────────────────`,
+    `Write-Host '[2/6] Installing font...'`,
+    `$fontSrc = Join-Path $localAssets 'TrajanPro-Bold.otf'`,
+    `if (Test-Path $fontSrc) {`,
+    `  try {`,
+    `    Copy-Item $fontSrc 'C:\\Windows\\Fonts\\TrajanPro-Bold.otf' -Force`,
+    `    $regPath = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'`,
+    `    New-ItemProperty -Path $regPath -Name 'Trajan Pro Bold (OpenType)' -Value 'TrajanPro-Bold.otf' -PropertyType String -Force -ErrorAction SilentlyContinue | Out-Null`,
+    `    Write-Host '[OK] TrajanPro-Bold.otf installed.' -ForegroundColor Green`,
+    `  } catch {`,
+    `    Write-Host "[WARN] Font install failed: $_" -ForegroundColor Yellow`,
+    `  }`,
+    `} else {`,
+    `  Write-Host '[WARN] TrajanPro-Bold.otf not found in assets — skipped.' -ForegroundColor Yellow`,
+    `}`,
+    ``,
+    `# ── Step 3: Patch Overlay_21.json + copy to OBS scenes ───────────────`,
+    `Write-Host '[3/6] Importing OBS scene collection...'`,
+    `$jsonSrc = Join-Path $localAssets 'Overlay_21.json'`,
+    `if (Test-Path $jsonSrc) {`,
+    `  try {`,
+    `    $uname     = $env:USERNAME`,
+    `    $json      = [IO.File]::ReadAllText($jsonSrc)`,
+    `    $json      = $json -replace 'Joshua', $uname`,
+    `    $scenesDir = Join-Path $env:APPDATA 'obs-studio\\basic\\scenes'`,
+    `    if (-not (Test-Path $scenesDir)) { New-Item -ItemType Directory -Path $scenesDir | Out-Null }`,
+    `    [IO.File]::WriteAllText((Join-Path $scenesDir 'Overlay_21.json'), $json, $utf8)`,
+    `    Write-Host "[OK] Overlay_21.json imported (username: $uname)." -ForegroundColor Green`,
+    `  } catch {`,
+    `    Write-Host "[FAIL] Scene import: $_" -ForegroundColor Red`,
+    `  }`,
+    `} else {`,
+    `  Write-Host '[WARN] Overlay_21.json not in assets — scene import skipped.' -ForegroundColor Yellow`,
+    `}`,
     ``,
     `$obsRoot   = Join-Path $env:APPDATA 'obs-studio'`,
     `$globalIni = Join-Path $obsRoot 'global.ini'`,
@@ -3588,8 +3649,8 @@ function buildObsSetupBat(dashboardUrl) {
     `  exit 1`,
     `}`,
     ``,
-    `# ── Step 1: WebSocket settings ───────────────────────────────────────`,
-    `Write-Host '[1/3] Configuring OBS WebSocket settings...'`,
+    `# ── Step 4: WebSocket settings ───────────────────────────────────────`,
+    `Write-Host '[4/6] Configuring OBS WebSocket settings...'`,
     `try {`,
     `  $txt = [IO.File]::ReadAllText($globalIni)`,
     `  $txt = [regex]::Replace($txt, '(?ms)^\\[OBSWebSocket\\].*?(?=\\r?\\n\\[|\\z)', '')`,
@@ -3608,8 +3669,8 @@ function buildObsSetupBat(dashboardUrl) {
     `# Captured from the host machine after the ESOC Docker was positioned correctly.`,
     `$dockState = 'AAAA/wAAAAD9AAAAAwAAAAAAAAE/AAADvPwCAAAAAvsAAAAUAHMAYwBlAG4AZQBzAEQAbwBjAGsBAAAAGwAAALcAAACMAP////wAAADWAAADAQAAAFAA////+gAAAAABAAAAB/sAAAAwAEUAUwBPAEMAIABEAG8AYwBrAGUAcgBfAGUAeAB0AHIAYQBCAHIAbwB3AHMAZQByAQAAAAD/////AAAAUAD////7AAAAGgBfAGUAeAB0AHIAYQBCAHIAbwB3AHMAZQByAQAAAAD/////AAAAAAAAAAD7AAAALgBFAFMATwBDACAAQQBkAG0AaQBuAF8AZQB4AHQAcgBhAEIAcgBvAHcAcwBlAHIAAAAAAP////8AAAAAAAAAAPsAAAAsAEUAUwBPAEMAIABEAG8AYwBrAF8AZQB4AHQAcgBhAEIAcgBvAHcAcwBlAHIAAAAAAP////8AAAAAAAAAAPsAAAAWAHMAbwB1AHIAYwBlAHMARABvAGMAawAAAAAA/////wAAAJgA////+wAAAB4AdAByAGEAbgBzAGkAdABpAG8AbgBzAEQAbwBjAGsAAAAAAP////8AAACCAP////sAAAAmAG8AYgBzAC0AbQB1AGwAdABpAC0AcgB0AG0AcAAtAGQAbwBjAGsBAAAAAP////8AAAAAAAAAAAAAAAEAAAFIAAADvPwCAAAABvsAAAASAG0AaQB4AGUAcgBEAG8AYwBrAQAAABsAAALcAAABBQD////7AAAAGABjAG8AbgB0AHIAbwBsAHMARABvAGMAawEAAAL7AAAA3AAAANgA////+wAAABQAdAB3AGkAdABjAGgAQwBoAGEAdAEAAAFgAAACdwAAAAAAAAAA+wAAABQAdAB3AGkAdABjAGgASQBuAGYAbwL///iyAAAASQAAASwAAAKK+wAAABYAdAB3AGkAdABjAGgAUwB0AGEAdABzAv//+9wAAAGHAAAAyAAAAPr7AAAAFAB0AHcAaQB0AGMAaABGAGUAZQBkAv//+OQAAABcAAABLAAAAooAAAADAAAHgAAAASD8AQAAAAH7AAAAEgBzAHQAYQB0AHMARABvAGMAawL///kWAAABswAAArwAAADeAAAE8QAAA7wAAAAEAAAABAAAAAgAAAAI/AAAAAA='`,
     ``,
-    `# Step 2: Write ExtraBrowserDocks + DockState to global.ini AND user.ini`,
-    `Write-Host '[2/3] Writing dock definition and layout to OBS ini file(s)...'`,
+    `# Step 5: Write ExtraBrowserDocks + DockState to global.ini AND user.ini`,
+    `Write-Host '[5/6] Writing dock definition and layout to OBS ini file(s)...'`,
     `$iniTargets = [System.Collections.Generic.List[string]]::new()`,
     `$iniTargets.Add($globalIni)`,
     `$userIni = Join-Path $obsRoot 'user.ini'`,
@@ -3639,8 +3700,8 @@ function buildObsSetupBat(dashboardUrl) {
     `  }`,
     `}`,
     ``,
-    `# Step 3: ALL profile basic.ini files — flat libobs format (always overwrite)`,
-    `Write-Host '[3/3] Writing dock to all profile basic.ini files...'`,
+    `# Step 6: ALL profile basic.ini files — flat libobs format (always overwrite)`,
+    `Write-Host '[6/6] Writing dock to all profile basic.ini files...'`,
     `$profilesDir = Join-Path $obsRoot 'basic\\profiles'`,
     `if (-not (Test-Path $profilesDir)) {`,
     `  Write-Host '  [WARN] No profiles directory found.' -ForegroundColor Yellow`,
@@ -3689,8 +3750,13 @@ function buildObsSetupBat(dashboardUrl) {
 
   const batLines = [
     '@echo off',
+    'net session >nul 2>&1',
+    'if %errorlevel% neq 0 (',
+    "  powershell -Command \"Start-Process -FilePath '%~f0' -Verb RunAs\"",
+    '  exit /b',
+    ')',
     'echo ===================================================',
-    'echo  ESOC OBS Dashboard -- Automatic Setup',
+    'echo  ESOC Full Overlay Setup',
     'echo ===================================================',
     'echo.',
     `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
@@ -3701,15 +3767,62 @@ function buildObsSetupBat(dashboardUrl) {
 }
 
 function handleObsSetupBatRequest(req, res) {
-  const defaultUrl = `${process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com'}/obs-dashboard`;
+  const serverBase = process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com';
+  const defaultUrl = `${serverBase}/obs-dashboard`;
   const url = req.query.url ? decodeURIComponent(req.query.url) : defaultUrl;
-  const bat = buildObsSetupBat(url);
+  const bat = buildObsSetupBat(url, serverBase);
   res.setHeader("Content-Disposition", 'attachment; filename="Setup ESOC OBS Dashboard.bat"');
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.send(bat);
 }
 app.get("/api/obs/setup-bat", handleObsSetupBatRequest);
 app.get("/obs/setup-bat",     handleObsSetupBatRequest);
+
+const DRIVE_OVERLAY_FOLDER_ID = '1IOFHu65Km7-tMHXZZSDD0XzrQrBywkNl';
+
+// GET /api/obs/drive-manifest — list files in the public overlay assets Drive folder
+app.get('/api/obs/drive-manifest', async (req, res) => {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'Google API key not configured on server' });
+  try {
+    const axios = require('axios');
+    const resp = await axios.get('https://www.googleapis.com/drive/v3/files', {
+      params: {
+        q: `'${DRIVE_OVERLAY_FOLDER_ID}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'`,
+        fields: 'files(id,name,size,mimeType)',
+        pageSize: 1000,
+        key: apiKey,
+      },
+    });
+    res.json(resp.data.files || []);
+  } catch (err) {
+    console.error('[Drive manifest]', err.response?.data || err.message);
+    res.status(502).json({ error: 'Failed to fetch Drive manifest' });
+  }
+});
+
+// GET /api/obs/drive-download/:fileId — proxy a public Drive file download (key stays server-side)
+app.get('/api/obs/drive-download/:fileId', async (req, res) => {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'Google API key not configured on server' });
+  const { fileId } = req.params;
+  if (!/^[\w-]+$/.test(fileId)) return res.status(400).json({ error: 'Invalid file ID' });
+  try {
+    const axios = require('axios');
+    const driveResp = await axios.get(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+      params: { alt: 'media', key: apiKey },
+      responseType: 'stream',
+    });
+    res.setHeader('Content-Type', driveResp.headers['content-type'] || 'application/octet-stream');
+    if (driveResp.headers['content-length']) {
+      res.setHeader('Content-Length', driveResp.headers['content-length']);
+    }
+    driveResp.data.pipe(res);
+  } catch (err) {
+    console.error('[Drive download]', err.response?.data || err.message);
+    if (!res.headersSent) res.status(502).json({ error: 'Failed to download file from Drive' });
+  }
+});
 
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
