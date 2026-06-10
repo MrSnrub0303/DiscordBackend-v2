@@ -3601,6 +3601,12 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
     `    if ($needsDl) {`,
     `      Write-Host "  Downloading $fileName..." -ForegroundColor Yellow`,
     `      Invoke-WebRequest -Uri $downloadUrl -OutFile $dest -UseBasicParsing -ErrorAction Stop`,
+    `      $localSize = (Get-Item $dest).Length`,
+    `      $driveSize = [long]"$($file.size)"`,
+    `      if ($driveSize -gt 0 -and $localSize -ne $driveSize) {`,
+    `        Remove-Item $dest -Force -ErrorAction SilentlyContinue`,
+    `        throw "Download of $fileName failed (got $localSize B, expected $driveSize B). Try re-running the setup script."`,
+    `      }`,
     `      Write-Host "  [OK] $fileName" -ForegroundColor Green`,
     `    } else {`,
     `      Write-Host "  [--] $fileName already up-to-date." -ForegroundColor DarkGray`,
@@ -3818,7 +3824,7 @@ async function handleDriveManifest(req, res) {
     // rather than proxying through this server (avoids timeout on large MP4s).
     const files = (resp.data.files || []).map(f => ({
       ...f,
-      downloadUrl: `https://drive.google.com/uc?export=download&confirm=t&id=${f.id}`,
+      downloadUrl: `https://drive.usercontent.google.com/download?id=${f.id}&export=download&confirm=t&authuser=0`,
     }));
     res.json(files);
   } catch (err) {
