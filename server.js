@@ -3781,7 +3781,7 @@ app.get("/obs/setup-bat",     handleObsSetupBatRequest);
 const DRIVE_OVERLAY_FOLDER_ID = '1IOFHu65Km7-tMHXZZSDD0XzrQrBywkNl';
 
 // GET /api/obs/drive-manifest — list files in the public overlay assets Drive folder
-app.get('/api/obs/drive-manifest', async (req, res) => {
+async function handleDriveManifest(req, res) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) return res.status(503).json({ error: 'Google API key not configured on server' });
   try {
@@ -3799,10 +3799,12 @@ app.get('/api/obs/drive-manifest', async (req, res) => {
     console.error('[Drive manifest]', err.response?.data || err.message);
     res.status(502).json({ error: 'Failed to fetch Drive manifest' });
   }
-});
+}
+app.get('/api/obs/drive-manifest', handleDriveManifest);
+app.get('/obs/drive-manifest',     handleDriveManifest);
 
 // GET /api/obs/drive-download/:fileId — proxy a public Drive file download (key stays server-side)
-app.get('/api/obs/drive-download/:fileId', async (req, res) => {
+async function handleDriveDownload(req, res) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) return res.status(503).json({ error: 'Google API key not configured on server' });
   const { fileId } = req.params;
@@ -3822,7 +3824,9 @@ app.get('/api/obs/drive-download/:fileId', async (req, res) => {
     console.error('[Drive download]', err.response?.data || err.message);
     if (!res.headersSent) res.status(502).json({ error: 'Failed to download file from Drive' });
   }
-});
+}
+app.get('/api/obs/drive-download/:fileId', handleDriveDownload);
+app.get('/obs/drive-download/:fileId',     handleDriveDownload);
 
 // GET /api/monitor/thumbnail  (serves the current thumbnail image)
 app.get("/api/monitor/thumbnail", async (req, res) => {
