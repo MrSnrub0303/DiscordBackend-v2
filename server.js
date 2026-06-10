@@ -2539,7 +2539,7 @@ const io = new Server(server, {
       "http://localhost:5173",
   "https://1438780052144783371.discordsays.com",
       "https://discord-frontend-virid.vercel.app",
-      "https://discordbackend-xggi.onrender.com",
+      "https://discordbackend-v2.onrender.com",
     ],
     methods: ["GET", "POST"],
     credentials: true,
@@ -3554,7 +3554,7 @@ function handleInstallRequest(req, res) {
   // Client passes the exact download URL it already knows; fall back to server env var
   const downloadUrl  = req.query.dlurl
     ? decodeURIComponent(req.query.dlurl)
-    : `${process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com'}/api/coop/download/${campaignId}/${actId}/${levelId}`;
+    : `${process.env.SERVER_URL || 'https://discordbackend-v2.onrender.com'}/api/coop/download/${campaignId}/${actId}/${levelId}`;
   const bat = buildBatInstaller(scenarioFile, downloadUrl);
   res.setHeader("Content-Disposition", `attachment; filename="Install ${levelName}.bat"`);
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -3767,7 +3767,7 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
 }
 
 function handleObsSetupBatRequest(req, res) {
-  const serverBase = process.env.SERVER_URL || 'https://discordbackend-xggi.onrender.com';
+  const serverBase = process.env.SERVER_URL || 'https://discordbackend-v2.onrender.com';
   const defaultUrl = `${serverBase}/obs-dashboard`;
   const url = req.query.url ? decodeURIComponent(req.query.url) : defaultUrl;
   const bat = buildObsSetupBat(url, serverBase);
