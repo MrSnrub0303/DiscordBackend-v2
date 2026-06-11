@@ -3806,8 +3806,11 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
   ];
 
   const psScript = psLines.join('\n');
-  // PowerShell -EncodedCommand expects UTF-16LE base64
-  const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+  // Encode as UTF-16LE base64 (PowerShell -EncodedCommand format), then split into
+  // 76-char lines so the bat can echo them to a temp file — bypasses cmd's 8191-char
+  // line limit which the script now exceeds when passed as a single -EncodedCommand arg.
+  const encoded  = Buffer.from(psScript, 'utf16le').toString('base64');
+  const b64Lines = (encoded.match(/.{1,76}/g) || []).map(l => `  echo ${l}`);
 
   const batLines = [
     '@echo off',
@@ -3820,7 +3823,15 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
     'echo  ESOC Full Overlay Setup',
     'echo ===================================================',
     'echo.',
-    `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+    'set "TMPB64=%TEMP%\\esoc_obs_setup.b64"',
+    'set "TMPPS=%TEMP%\\esoc_obs_setup.ps1"',
+    '> "%TMPB64%" (',
+    ...b64Lines,
+    ')',
+    `powershell -NoProfile -Command "$b=[Convert]::FromBase64String(([IO.File]::ReadAllText($env:TMPB64) -replace '\\s',''));[IO.File]::WriteAllText($env:TMPPS,[Text.Encoding]::Unicode.GetString($b))"`,
+    'powershell -NoProfile -ExecutionPolicy Bypass -File "%TMPPS%"',
+    'del "%TMPB64%" 2>nul',
+    'del "%TMPPS%" 2>nul',
     'echo.',
     'pause',
   ];
