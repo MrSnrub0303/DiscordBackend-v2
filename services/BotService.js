@@ -1094,11 +1094,11 @@ function startDiscordClient() {
     log.info('Discord', `Bot logged in as ${discordClient.user.tag}`);
     try {
       const rest = new REST().setToken(DISCORD_BOT_TOKEN);
-      await rest.put(Routes.applicationCommands(discordClient.user.id), {
-        body: [{
+      await rest.post(Routes.applicationCommands(discordClient.user.id), {
+        body: {
           name: 'test-notification',
           description: 'Send yourself a preview of the go-live stream announcement',
-        }],
+        },
       });
       log.info('Discord', 'Slash commands registered.');
     } catch (err) {
