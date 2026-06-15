@@ -920,13 +920,13 @@ async function sendStreamNotification(streamInfo) {
 
   const thumbnailUrl = streamInfo.thumbnail_url?.replace('{width}','1280').replace('{height}','720');
   const embed = new EmbedBuilder()
-    .setTitle(streamInfo.title || 'ESOCTV is live!')
-    .setDescription(`🎙️ **Casters:** ${casterNames}\n🔴 Watch now: https://twitch.tv/esoctv`)
+    .setDescription(`**${streamInfo.title || 'ESOCTV is live!'}**\n\n🎙️ **Casters:** ${casterNames}\n\n🔴 Watch now: https://twitch.tv/esoctv`)
     .setColor(0xff0000)
+    .setThumbnail('https://discordbackend-v2.onrender.com/assets/Announcement_Animation.gif')
     .setFooter({ text: 'Auto-removes after 8 hours.' });
   if (thumbnailUrl) embed.setImage(thumbnailUrl);
 
-  const message = await channel.send({ content: `<@&${NOTIFY_ROLE_ID}>`, embeds: [embed] });
+  const message = await channel.send({ content: `<@&${NOTIFY_ROLE_ID}> we are **LIVE!** 🥳`, embeds: [embed] });
   saveJson(LAST_STREAM_FILE, { last_stream_id: streamInfo.id, last_stream_online: now });
   status.lastStreamNotify = new Date().toISOString();
   log.info('StreamNotify', `Notification sent: "${streamInfo.title}"`);
@@ -1117,9 +1117,9 @@ function startDiscordClient() {
     await interaction.deferReply({ ephemeral: true });
 
     const testEmbed = new EmbedBuilder()
-      .setTitle('EPL Week 1: Team A vs Team B [TEST]')
-      .setDescription('🎙️ **Casters:** Caster1, Caster2\n🔴 Watch now: https://twitch.tv/esoctv')
+      .setDescription('**EPL Week 1: Team A vs Team B [TEST]**\n\n🎙️ **Casters:** Caster1, Caster2\n\n🔴 Watch now: https://twitch.tv/esoctv')
       .setColor(0xff0000)
+      .setThumbnail('https://discordbackend-v2.onrender.com/assets/Announcement_Animation.gif')
       .setFooter({ text: 'Auto-removes after 8 hours. (Test — no role was pinged.)' });
 
     if (interaction.commandName === 'test-notification') {
