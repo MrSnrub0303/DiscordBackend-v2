@@ -432,12 +432,43 @@ async function exchangeYouTubeCode(code) {
 // Restream API helpers
 // ─────────────────────────────────────────────────────────────────
 
+// Channel IDs discovered at runtime from /v2/user/channel/all
+let _restreamChannelIds = null;
+
+async function discoverRestreamChannels(accessToken) {
+  if (_restreamChannelIds) return _restreamChannelIds;
+  const resp = await fetch('https://api.restream.io/v2/user/channel/all', {
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+  });
+  const body = await resp.text();
+  if (!resp.ok) {
+    log.warn('Restream', `Cannot list channels: ${resp.status} — ${body}`);
+    return null;
+  }
+  let channels;
+  try { channels = JSON.parse(body); } catch { log.warn('Restream', `Bad JSON from channel/all: ${body}`); return null; }
+  if (!Array.isArray(channels) || channels.length === 0) {
+    log.warn('Restream', `channel/all returned no channels: ${body}`);
+    return null;
+  }
+  log.info('Restream', `Discovered channels: ${channels.map(c => `${c.id}=${c.displayName || c.type || '?'}`).join(', ')}`);
+  const twitch  = channels.find(c => String(c.id) === RESTREAM_TWITCH_CH)
+               || channels.find(c => (c.displayName || c.type || '').toLowerCase().includes('twitch'));
+  const youtube = channels.find(c => String(c.id) === RESTREAM_YOUTUBE_CH)
+               || channels.find(c => (c.displayName || c.type || '').toLowerCase().includes('youtube'));
+  if (!twitch)  log.warn('Restream', `No Twitch channel found (looked for id ${RESTREAM_TWITCH_CH})`);
+  if (!youtube) log.warn('Restream', `No YouTube channel found (looked for id ${RESTREAM_YOUTUBE_CH})`);
+  _restreamChannelIds = { twitchId: String(twitch?.id ?? ''), youtubeId: String(youtube?.id ?? '') };
+  return _restreamChannelIds;
+}
+
 async function getRestreamChannelTitle(channelId, accessToken) {
   const resp = await fetch(`https://api.restream.io/v2/user/channel/${channelId}/meta`, {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
   });
   if (resp.ok) return (await resp.json()).title || '';
-  log.warn('Restream', `Error fetching title for channel ${channelId}: ${resp.status}`);
+  const body = await resp.text().catch(() => '');
+  log.warn('Restream', `Error fetching title for channel ${channelId}: ${resp.status} — ${body}`);
   return null;
 }
 
@@ -448,7 +479,8 @@ async function updateRestreamChannelTitle(newTitle, channelId, accessToken) {
     body: JSON.stringify({ title: newTitle }),
   });
   if (resp.ok) { log.info('Restream', `Channel ${channelId} title → "${newTitle}"`); return true; }
-  log.warn('Restream', `Error updating channel ${channelId}: ${resp.status}`);
+  const body = await resp.text().catch(() => '');
+  log.warn('Restream', `Error updating channel ${channelId}: ${resp.status} — ${body}`);
   return false;
 }
 
@@ -778,12 +810,19 @@ async function checkEventsLoop() {
       if (upcoming.size === 0) { log.info('Restream', 'No events starting within 15 minutes.'); continue; }
 
       const eventTitle = upcoming.first().name;
-      let titleT = await getRestreamChannelTitle(RESTREAM_TWITCH_CH, accessToken);
-      let titleY = await getRestreamChannelTitle(RESTREAM_YOUTUBE_CH, accessToken);
+
+      // Discover actual channel IDs from the API (cached after first call)
+      const chIds = await discoverRestreamChannels(accessToken);
+      const twitchChId  = chIds?.twitchId  || RESTREAM_TWITCH_CH;
+      const youtubeChId = chIds?.youtubeId || RESTREAM_YOUTUBE_CH;
+      if (!twitchChId && !youtubeChId) { log.warn('Restream', 'No channel IDs available — skipping title update.'); continue; }
+
+      let titleT = twitchChId  ? await getRestreamChannelTitle(twitchChId,  accessToken) : null;
+      let titleY = youtubeChId ? await getRestreamChannelTitle(youtubeChId, accessToken) : null;
 
       if (titleT !== eventTitle || titleY !== eventTitle) {
-        await updateRestreamChannelTitle(eventTitle, RESTREAM_TWITCH_CH, accessToken);
-        await updateRestreamChannelTitle(eventTitle, RESTREAM_YOUTUBE_CH, accessToken);
+        if (twitchChId)  await updateRestreamChannelTitle(eventTitle, twitchChId,  accessToken);
+        if (youtubeChId) await updateRestreamChannelTitle(eventTitle, youtubeChId, accessToken);
         status.lastRestreamUpdate = new Date().toISOString();
       } else {
         log.info('Restream', `Title already matches: "${eventTitle}"`);
