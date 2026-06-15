@@ -1094,11 +1094,17 @@ function startDiscordClient() {
     log.info('Discord', `Bot logged in as ${discordClient.user.tag}`);
     try {
       const rest = new REST().setToken(DISCORD_BOT_TOKEN);
-      await rest.post(Routes.applicationCommands(discordClient.user.id), {
-        body: {
-          name: 'test-notification',
-          description: 'Send yourself a preview of the go-live stream announcement',
-        },
+      await rest.put(Routes.applicationGuildCommands(discordClient.user.id, DISCORD_GUILD_ID), {
+        body: [
+          {
+            name: 'test-notification',
+            description: 'Send yourself a preview of the go-live stream announcement',
+          },
+          {
+            name: 'test-channel-post',
+            description: 'Post a test announcement in the news channel (no ping) to verify bot permissions',
+          },
+        ],
       });
       log.info('Discord', 'Slash commands registered.');
     } catch (err) {
@@ -1107,18 +1113,36 @@ function startDiscordClient() {
   });
 
   discordClient.on('interactionCreate', async (interaction) => {
-    if (!interaction.isChatInputCommand() || interaction.commandName !== 'test-notification') return;
+    if (!interaction.isChatInputCommand()) return;
     await interaction.deferReply({ ephemeral: true });
-    try {
-      const embed = new EmbedBuilder()
-        .setTitle('EPL Week 1: Team A vs Team B [TEST]')
-        .setDescription('🎙️ **Casters:** Caster1, Caster2\n🔴 Watch now: https://twitch.tv/esoctv')
-        .setColor(0xff0000)
-        .setFooter({ text: 'Auto-removes after 8 hours. (Test — no role was pinged.)' });
-      await interaction.user.send({ embeds: [embed] });
-      await interaction.editReply({ content: '✅ Test notification sent to your DMs!' });
-    } catch (err) {
-      await interaction.editReply({ content: `❌ Couldn't send DM: ${err.message}` });
+
+    const testEmbed = new EmbedBuilder()
+      .setTitle('EPL Week 1: Team A vs Team B [TEST]')
+      .setDescription('🎙️ **Casters:** Caster1, Caster2\n🔴 Watch now: https://twitch.tv/esoctv')
+      .setColor(0xff0000)
+      .setFooter({ text: 'Auto-removes after 8 hours. (Test — no role was pinged.)' });
+
+    if (interaction.commandName === 'test-notification') {
+      try {
+        await interaction.user.send({ embeds: [testEmbed] });
+        await interaction.editReply({ content: '✅ Test notification sent to your DMs!' });
+      } catch (err) {
+        await interaction.editReply({ content: `❌ Couldn't send DM: ${err.message}` });
+      }
+
+    } else if (interaction.commandName === 'test-channel-post') {
+      try {
+        const guild = discordClient.guilds.cache.get(DISCORD_GUILD_ID);
+        const channel = guild?.channels.cache.get(NEWS_CHANNEL_ID);
+        if (!channel) {
+          await interaction.editReply({ content: `❌ News channel not found (id: ${NEWS_CHANNEL_ID}).` });
+          return;
+        }
+        await channel.send({ embeds: [testEmbed] });
+        await interaction.editReply({ content: `✅ Test post sent to <#${NEWS_CHANNEL_ID}>!` });
+      } catch (err) {
+        await interaction.editReply({ content: `❌ Failed to post in news channel: ${err.message}` });
+      }
     }
   });
 
