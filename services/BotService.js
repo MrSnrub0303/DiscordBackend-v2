@@ -432,34 +432,26 @@ async function exchangeYouTubeCode(code) {
 // Restream API helpers
 // ─────────────────────────────────────────────────────────────────
 
-// Channel IDs discovered at runtime from /v2/user/channel/all
-let _restreamChannelIds = null;
-
-async function discoverRestreamChannels(accessToken) {
-  if (_restreamChannelIds) return _restreamChannelIds;
-  const resp = await fetch('https://api.restream.io/v2/user/channel/all', {
-    headers: { 'Authorization': `Bearer ${accessToken}` },
-  });
-  const body = await resp.text();
-  if (!resp.ok) {
-    log.warn('Restream', `Cannot list channels: ${resp.status} — ${body}`);
-    return null;
+async function getActiveEventChannelIds(accessToken) {
+  const channelIds = new Set();
+  for (const segment of ['upcoming', 'in-progress']) {
+    try {
+      const resp = await fetch(`https://api.restream.io/v2/user/events/${segment}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!resp.ok) { log.warn('Restream', `Cannot fetch ${segment} events: ${resp.status}`); continue; }
+      const events = await resp.json();
+      if (!Array.isArray(events)) continue;
+      for (const ev of events) {
+        for (const dest of (ev.destinations || [])) {
+          if (dest.channelId) channelIds.add(String(dest.channelId));
+        }
+      }
+    } catch (err) {
+      log.warn('Restream', `Error fetching ${segment} events: ${err.message}`);
+    }
   }
-  let channels;
-  try { channels = JSON.parse(body); } catch { log.warn('Restream', `Bad JSON from channel/all: ${body}`); return null; }
-  if (!Array.isArray(channels) || channels.length === 0) {
-    log.warn('Restream', `channel/all returned no channels: ${body}`);
-    return null;
-  }
-  log.info('Restream', `Discovered channels: ${channels.map(c => `${c.id}=${c.displayName || c.type || '?'}`).join(', ')}`);
-  const twitch  = channels.find(c => String(c.id) === RESTREAM_TWITCH_CH)
-               || channels.find(c => (c.displayName || c.type || '').toLowerCase().includes('twitch'));
-  const youtube = channels.find(c => String(c.id) === RESTREAM_YOUTUBE_CH)
-               || channels.find(c => (c.displayName || c.type || '').toLowerCase().includes('youtube'));
-  if (!twitch)  log.warn('Restream', `No Twitch channel found (looked for id ${RESTREAM_TWITCH_CH})`);
-  if (!youtube) log.warn('Restream', `No YouTube channel found (looked for id ${RESTREAM_YOUTUBE_CH})`);
-  _restreamChannelIds = { twitchId: String(twitch?.id ?? ''), youtubeId: String(youtube?.id ?? '') };
-  return _restreamChannelIds;
+  return [...channelIds];
 }
 
 async function getRestreamChannelTitle(channelId, accessToken) {
@@ -811,21 +803,25 @@ async function checkEventsLoop() {
 
       const eventTitle = upcoming.first().name;
 
-      // Discover actual channel IDs from the API (cached after first call)
-      const chIds = await discoverRestreamChannels(accessToken);
-      const twitchChId  = chIds?.twitchId  || RESTREAM_TWITCH_CH;
-      const youtubeChId = chIds?.youtubeId || RESTREAM_YOUTUBE_CH;
-      if (!twitchChId && !youtubeChId) { log.warn('Restream', 'No channel IDs available — skipping title update.'); continue; }
+      let channelIds = await getActiveEventChannelIds(accessToken);
+      if (channelIds.length === 0) {
+        log.warn('Restream', 'No active event channels found — using fallback IDs.');
+        channelIds = [RESTREAM_TWITCH_CH, RESTREAM_YOUTUBE_CH];
+      }
 
-      let titleT = twitchChId  ? await getRestreamChannelTitle(twitchChId,  accessToken) : null;
-      let titleY = youtubeChId ? await getRestreamChannelTitle(youtubeChId, accessToken) : null;
-
-      if (titleT !== eventTitle || titleY !== eventTitle) {
-        if (twitchChId)  await updateRestreamChannelTitle(eventTitle, twitchChId,  accessToken);
-        if (youtubeChId) await updateRestreamChannelTitle(eventTitle, youtubeChId, accessToken);
-        status.lastRestreamUpdate = new Date().toISOString();
-      } else {
+      let anyUpdated = false;
+      let allMatch = true;
+      for (const chId of channelIds) {
+        const currentTitle = await getRestreamChannelTitle(chId, accessToken);
+        if (currentTitle !== eventTitle) {
+          allMatch = false;
+          if (await updateRestreamChannelTitle(eventTitle, chId, accessToken)) anyUpdated = true;
+        }
+      }
+      if (allMatch) {
         log.info('Restream', `Title already matches: "${eventTitle}"`);
+      } else if (anyUpdated) {
+        status.lastRestreamUpdate = new Date().toISOString();
       }
     } catch (err) {
       log.error('Restream', `check_events error: ${err.message}`);
