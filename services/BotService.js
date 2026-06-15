@@ -7,7 +7,7 @@
  */
 
 require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, REST, Routes } = require('discord.js');
 const tmi = require('tmi.js');
 const { google } = require('googleapis');
 const fs = require('fs');
@@ -1089,7 +1089,39 @@ function startDiscordClient() {
       GatewayIntentBits.GuildMembers,
     ],
   });
-  discordClient.once('ready', () => log.info('Discord', `Bot logged in as ${discordClient.user.tag}`));
+
+  discordClient.once('ready', async () => {
+    log.info('Discord', `Bot logged in as ${discordClient.user.tag}`);
+    try {
+      const rest = new REST().setToken(DISCORD_BOT_TOKEN);
+      await rest.put(Routes.applicationCommands(discordClient.user.id), {
+        body: [{
+          name: 'test-notification',
+          description: 'Send yourself a preview of the go-live stream announcement',
+        }],
+      });
+      log.info('Discord', 'Slash commands registered.');
+    } catch (err) {
+      log.warn('Discord', `Slash command registration failed: ${err.message}`);
+    }
+  });
+
+  discordClient.on('interactionCreate', async (interaction) => {
+    if (!interaction.isChatInputCommand() || interaction.commandName !== 'test-notification') return;
+    await interaction.deferReply({ ephemeral: true });
+    try {
+      const embed = new EmbedBuilder()
+        .setTitle('EPL Week 1: Team A vs Team B [TEST]')
+        .setDescription('🎙️ **Casters:** Caster1, Caster2\n🔴 Watch now: https://twitch.tv/esoctv')
+        .setColor(0xff0000)
+        .setFooter({ text: 'Auto-removes after 8 hours. (Test — no role was pinged.)' });
+      await interaction.user.send({ embeds: [embed] });
+      await interaction.editReply({ content: '✅ Test notification sent to your DMs!' });
+    } catch (err) {
+      await interaction.editReply({ content: `❌ Couldn't send DM: ${err.message}` });
+    }
+  });
+
   discordClient.on('error', (err) => log.error('Discord', `Client error: ${err.message}`));
   discordClient.login(DISCORD_BOT_TOKEN).catch(err => log.error('Discord', `Login failed: ${err.message}`));
 }

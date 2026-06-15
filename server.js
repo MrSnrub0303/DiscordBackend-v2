@@ -3783,7 +3783,7 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
     `    'LowLatencyEnable=false', 'IPFamily=IPv4+IPv6', '',`,
     `    '[Stream1]', 'IgnoreRecommended=false', 'MultitrackVideoMaximumAggregateBitrateAuto=true',`,
     `    'MultitrackVideoMaximumVideoTracksAuto=true', 'EnableMultitrackVideo=false', '',`,
-    `    '[SimpleOutput]', 'VBitrate=10000', 'ABitrate=320'`,
+    `    '[SimpleOutput]', 'VBitrate=6000', 'ABitrate=320'`,
     `  )`,
     `  if ($simpleEnc -eq 'nvenc') { $basicLines += 'NVENCPreset2=p5' }`,
     `  $basicLines += @(`,
