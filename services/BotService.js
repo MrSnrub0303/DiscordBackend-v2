@@ -463,7 +463,7 @@ async function discoverRestreamChannels(accessToken) {
 }
 
 async function getRestreamChannelTitle(channelId, accessToken) {
-  const resp = await fetch(`https://api.restream.io/v2/user/channel/${channelId}/meta`, {
+  const resp = await fetch(`https://api.restream.io/v2/user/channel-meta/${channelId}`, {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
   });
   if (resp.ok) return (await resp.json()).title || '';
@@ -473,7 +473,7 @@ async function getRestreamChannelTitle(channelId, accessToken) {
 }
 
 async function updateRestreamChannelTitle(newTitle, channelId, accessToken) {
-  const resp = await fetch(`https://api.restream.io/v2/user/channel/${channelId}/meta`, {
+  const resp = await fetch(`https://api.restream.io/v2/user/channel-meta/${channelId}`, {
     method: 'PATCH',
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: newTitle }),
@@ -482,49 +482,6 @@ async function updateRestreamChannelTitle(newTitle, channelId, accessToken) {
   const body = await resp.text().catch(() => '');
   log.warn('Restream', `Error updating channel ${channelId}: ${resp.status} — ${body}`);
   return false;
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Direct platform title update helpers (used instead of Restream API)
-// ─────────────────────────────────────────────────────────────────
-
-async function updateTwitchLiveTitle(newTitle) {
-  const token = await getValidTwitchToken();
-  if (!token) { log.warn('Twitch', 'No valid token — skipping title update.'); return false; }
-  const resp = await fetch(
-    `https://api.twitch.tv/helix/channels?broadcaster_id=${TWITCH_BROADCASTER_ID}`,
-    { method: 'PATCH', headers: twitchHeaders(token), body: JSON.stringify({ title: newTitle }) }
-  );
-  if (resp.status === 204) { log.info('Twitch', `Live title → "${newTitle}"`); return true; }
-  const body = await resp.text().catch(() => '');
-  log.warn('Twitch', `Error updating live title: ${resp.status} — ${body}`);
-  return false;
-}
-
-async function updateYouTubeLiveTitle(newTitle) {
-  let yt;
-  try { yt = await getYouTubeService(); } catch (err) {
-    log.warn('YouTube', `Cannot get service for title update: ${err.message}`); return false;
-  }
-  try {
-    // Find the most recent active or upcoming broadcast
-    let broadcast = null;
-    for (const broadcastStatus of ['active', 'upcoming']) {
-      const r = await yt.liveBroadcasts.list({ mine: true, broadcastStatus, part: 'id,snippet', maxResults: 1 });
-      if (r.data.items?.length > 0) { broadcast = r.data.items[0]; break; }
-    }
-    if (!broadcast) { log.info('YouTube', 'No active/upcoming broadcast — skipping title update.'); return false; }
-    if (broadcast.snippet?.title === newTitle) { log.info('YouTube', `Broadcast title already matches: "${newTitle}"`); return true; }
-    await yt.liveBroadcasts.update({
-      part: 'snippet',
-      requestBody: { id: broadcast.id, snippet: { ...broadcast.snippet, title: newTitle } },
-    });
-    log.info('YouTube', `Live broadcast title → "${newTitle}"`);
-    return true;
-  } catch (err) {
-    log.warn('YouTube', `Error updating broadcast title: ${err.message}`);
-    return false;
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -830,13 +787,15 @@ async function getLatestTournamentUrl() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Background task: Live stream title updates (every 60s)
+// Background task: Restream title updates (every 60s)
 // ─────────────────────────────────────────────────────────────────
 
 async function checkEventsLoop() {
   while (true) {
     await sleep(60000);
     try {
+      const accessToken = await getValidRestreamToken();
+      if (!accessToken) { log.warn('Restream', 'No valid token — skipping title check.'); continue; }
       if (!discordClient?.isReady()) continue;
       const guild = discordClient.guilds.cache.get(DISCORD_GUILD_ID);
       if (!guild) continue;
@@ -848,14 +807,28 @@ async function checkEventsLoop() {
         ev.scheduledStartAt.getTime() <= now + 15 * 60 * 1000 &&
         ev.scheduledStartAt.getTime() > now - 60 * 1000
       );
-      if (upcoming.size === 0) { log.info('EventSync', 'No events starting within 15 minutes.'); continue; }
+      if (upcoming.size === 0) { log.info('Restream', 'No events starting within 15 minutes.'); continue; }
 
       const eventTitle = upcoming.first().name;
-      const twitchOk  = await updateTwitchLiveTitle(eventTitle);
-      const youtubeOk = await updateYouTubeLiveTitle(eventTitle);
-      if (twitchOk || youtubeOk) status.lastRestreamUpdate = new Date().toISOString();
+
+      // Discover actual channel IDs from the API (cached after first call)
+      const chIds = await discoverRestreamChannels(accessToken);
+      const twitchChId  = chIds?.twitchId  || RESTREAM_TWITCH_CH;
+      const youtubeChId = chIds?.youtubeId || RESTREAM_YOUTUBE_CH;
+      if (!twitchChId && !youtubeChId) { log.warn('Restream', 'No channel IDs available — skipping title update.'); continue; }
+
+      let titleT = twitchChId  ? await getRestreamChannelTitle(twitchChId,  accessToken) : null;
+      let titleY = youtubeChId ? await getRestreamChannelTitle(youtubeChId, accessToken) : null;
+
+      if (titleT !== eventTitle || titleY !== eventTitle) {
+        if (twitchChId)  await updateRestreamChannelTitle(eventTitle, twitchChId,  accessToken);
+        if (youtubeChId) await updateRestreamChannelTitle(eventTitle, youtubeChId, accessToken);
+        status.lastRestreamUpdate = new Date().toISOString();
+      } else {
+        log.info('Restream', `Title already matches: "${eventTitle}"`);
+      }
     } catch (err) {
-      log.error('EventSync', `check_events error: ${err.message}`);
+      log.error('Restream', `check_events error: ${err.message}`);
     }
   }
 }
