@@ -433,7 +433,7 @@ async function exchangeYouTubeCode(code) {
 // ─────────────────────────────────────────────────────────────────
 
 async function getRestreamChannelTitle(channelId, accessToken) {
-  const resp = await fetch(`https://api.restream.io/v2/user/channel-meta/${channelId}`, {
+  const resp = await fetch(`https://api.restream.io/v2/user/channel/${channelId}/meta`, {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
   });
   if (resp.ok) return (await resp.json()).title || '';
@@ -442,7 +442,7 @@ async function getRestreamChannelTitle(channelId, accessToken) {
 }
 
 async function updateRestreamChannelTitle(newTitle, channelId, accessToken) {
-  const resp = await fetch(`https://api.restream.io/v2/user/channel-meta/${channelId}`, {
+  const resp = await fetch(`https://api.restream.io/v2/user/channel/${channelId}/meta`, {
     method: 'PATCH',
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: newTitle }),
