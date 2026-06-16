@@ -3459,6 +3459,13 @@ app.get("/api/monitor/logs", (_req, res) => {
   res.json({ logs: LogBuffer.getAll() });
 });
 
+// GET /api/restream/chat-token — returns a valid Restream access token for OBS chat overlay
+app.get("/api/restream/chat-token", async (_req, res) => {
+  const token = await BotService.getRestreamAccessToken();
+  if (!token) return res.status(503).json({ error: "No valid Restream token — authorize via Monitor." });
+  res.json({ token });
+});
+
 // GET /obs-dashboard — serves the ESOC Admin OBS dashboard (no auth; OBS loads it directly as a browser dock)
 app.get("/obs-dashboard", (_req, res) => {
   res.sendFile(path.join(__dirname, "obs-dashboard.html"));

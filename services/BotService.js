@@ -1203,4 +1203,5 @@ module.exports = {
   getRestreamAuthUrl, exchangeRestreamCode,
   getYouTubeAuthUrl, exchangeYouTubeCode,
   checkAndUpdateThumbnail,
+  getRestreamAccessToken: getValidRestreamToken,
 };
