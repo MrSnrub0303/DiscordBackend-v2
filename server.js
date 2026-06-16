@@ -3460,7 +3460,9 @@ app.get("/api/monitor/logs", (_req, res) => {
 });
 
 // GET /api/restream/chat-token — returns a valid Restream access token for OBS chat overlay
+// Allow-all CORS so OBS browser sources (file:// origin) can reach this endpoint
 app.get("/api/restream/chat-token", async (_req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const token = await BotService.getRestreamAccessToken();
   if (!token) return res.status(503).json({ error: "No valid Restream token — authorize via Monitor." });
   res.json({ token });
