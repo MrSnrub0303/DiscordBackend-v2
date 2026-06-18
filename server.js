@@ -3823,7 +3823,7 @@ function buildObsSetupBat(dashboardUrl, serverBaseUrl) {
     `  $basicContent = $basicLines -join "\`r\`n"`,
     `  [IO.File]::WriteAllText($basicIni, $basicContent, $utf8)`,
     `  # Stream service (Restream.io, Autodetect server, ESOC stream key)`,
-    `  $serviceJson = '{"settings":{"bwtest":false,"key":"re_9015438_eventefb46986a0b7402084c4488a00985c0a","server":"auto","service":"Restream.io"},"type":"rtmp_common"}'`,
+    `  $serviceJson = '{"type":"rtmp_common","settings":{"service":"Restream.io","protocol":"RTMP","server":"rtmp://live.restream.io/live","bwtest":false,"key":"re_9015438_eventefb46986a0b7402084c4488a00985c0a"}}'`,
     `  [IO.File]::WriteAllText((Join-Path $esocProfileDir 'service.json'), $serviceJson, $utf8)`,
     `  Write-Host "[OK] ESOC Profile: StreamEncoder=$simpleEnc, Restream.io key set, 1920x1080@60fps, 48kHz stereo, dock written." -ForegroundColor Green`,
     `} catch {`,
