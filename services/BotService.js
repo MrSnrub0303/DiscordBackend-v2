@@ -682,6 +682,22 @@ async function checkESOCLobbyResult() {
     return;
   }
 
+  // If a result was already found, wait 5 minutes before resolving
+  if (activePrediction.pendingOutcomeId) {
+    if (Date.now() - activePrediction.resultFoundAt >= 5 * 60 * 1000) {
+      log.info('Twitch', `5-minute delay elapsed — resolving prediction: ${activePrediction.pendingWinner} wins.`);
+      const ok = await resolveTwitchPrediction(activePrediction.id, activePrediction.pendingOutcomeId);
+      if (ok) {
+        log.info('Twitch', `Prediction resolved: ${activePrediction.pendingWinner} wins.`);
+        activePrediction = null;
+      }
+    } else {
+      const remaining = Math.ceil((5 * 60 * 1000 - (Date.now() - activePrediction.resultFoundAt)) / 1000);
+      log.info('Twitch', `Result pending — resolving in ${remaining}s (waiting for 5-minute delay).`);
+    }
+    return;
+  }
+
   try {
     const { player1, player2, outcomes, matchId } = activePrediction;
     const url = `https://api.aoe3explorer.com/matchHistory?limit=1&isRanked=eq.false&matchId=eq.${matchId}`;
@@ -710,12 +726,10 @@ async function checkESOCLobbyResult() {
     }
 
     const winner = winnerNames.includes(p1Lower) ? player1 : player2;
-    log.info('Twitch', `Match result: ${winner} wins — resolving prediction.`);
-    const ok = await resolveTwitchPrediction(activePrediction.id, winningOutcomeId);
-    if (ok) {
-      log.info('Twitch', `Prediction resolved: ${winner} wins.`);
-      activePrediction = null;
-    }
+    log.info('Twitch', `Match result: ${winner} wins — resolving prediction in 5 minutes.`);
+    activePrediction.pendingWinner = winner;
+    activePrediction.pendingOutcomeId = winningOutcomeId;
+    activePrediction.resultFoundAt = Date.now();
   } catch (err) {
     log.error('Twitch', `checkESOCLobbyResult error: ${err.message}`);
   }
