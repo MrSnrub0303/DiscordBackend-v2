@@ -681,7 +681,7 @@ async function checkForESOCLobby() {
 
 function getPredictionStatus() {
   if (activePrediction?.pendingOutcomeId) {
-    const remaining = Math.max(0, Math.ceil((5 * 60 * 1000 - (Date.now() - activePrediction.resultFoundAt)) / 1000));
+    const remaining = Math.max(0, Math.ceil((10 * 60 * 1000 - (Date.now() - activePrediction.resultFoundAt)) / 1000));
     return { state: 'resolving', winner: activePrediction.pendingWinner, remaining };
   }
   if (activePrediction) {
@@ -714,7 +714,7 @@ async function checkESOCLobbyResult() {
 
   // If a result was already found, wait 5 minutes before resolving
   if (activePrediction.pendingOutcomeId) {
-    if (Date.now() - activePrediction.resultFoundAt >= 5 * 60 * 1000) {
+    if (Date.now() - activePrediction.resultFoundAt >= 10 * 60 * 1000) {
       log.info('Twitch', `5-minute delay elapsed — resolving prediction: ${activePrediction.pendingWinner} wins.`);
       const ok = await resolveTwitchPrediction(activePrediction.id, activePrediction.pendingOutcomeId);
       if (ok) {
@@ -722,7 +722,7 @@ async function checkESOCLobbyResult() {
         activePrediction = null;
       }
     } else {
-      const remaining = Math.ceil((5 * 60 * 1000 - (Date.now() - activePrediction.resultFoundAt)) / 1000);
+      const remaining = Math.ceil((10 * 60 * 1000 - (Date.now() - activePrediction.resultFoundAt)) / 1000);
       log.info('Twitch', `Result pending — resolving in ${remaining}s (waiting for 5-minute delay).`);
     }
     return;
