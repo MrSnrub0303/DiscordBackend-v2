@@ -116,8 +116,6 @@ let tmiClient = null;
 
 // Active prediction state — null when no prediction running
 let activePrediction = null; // { id, outcomes, player1, player2, createdAt }
-// Lobby detected but not yet started — caster must press button to activate
-let pendingLobby = null; // { player1, player2, matchId, option1, option2 }
 
 const status = {
   twitchLive: false,
@@ -635,17 +633,21 @@ async function cancelTwitchPrediction(predictionId) {
 // ─────────────────────────────────────────────────────────────────
 
 async function checkForESOCLobby() {
+  if (activePrediction) return; // prediction already running, nothing to do
   try {
     const resp = await fetch('https://api.freefoodparty.com/observablelist_all');
-    if (!resp.ok) { pendingLobby = null; return; }
+    if (!resp.ok) return;
     const raw = await resp.json();
     const games = Array.isArray(raw) ? raw : (raw.observableMatchInfo || raw.games || raw.data || []);
     const lobby = games.find(g => g.gameName?.toUpperCase().includes('ESOC LOBBY A'));
-    if (!lobby) { pendingLobby = null; return; }
+    if (!lobby) return;
 
     const allPlayers = lobby.obeservableMatchPlayerInfo || [];
-    const players = allPlayers.filter(p => p.name !== null && p.idPlayer !== -1);
-    if (players.length < 2) { pendingLobby = null; return; }
+    // Include AI players (they may have name=null or idPlayer=-1); filter by valid civ slot
+    const players = allPlayers
+      .filter(p => p.idCiv != null && p.idCiv > 0)
+      .map(p => ({ ...p, name: p.name || 'AI' }));
+    if (players.length < 2) return;
 
     const p1 = players[0];
     const p2 = players[1];
@@ -655,18 +657,26 @@ async function checkForESOCLobby() {
     const option1 = `${p1.name} (${civ1})`.slice(0, 25);
     const option2 = `${p2.name} (${civ2})`.slice(0, 25);
 
-    // Only update pendingLobby if the match ID changed (avoids noisy log spam every 30s)
-    if (!pendingLobby || pendingLobby.matchId !== lobby.idGame) {
-      log.info('Twitch', `ESOC Lobby A detected: ${p1.name} vs ${p2.name} — awaiting caster to start prediction`);
+    log.info('Twitch', `ESOC Lobby A detected: ${p1.name} vs ${p2.name} — creating prediction`);
+    const prediction = await createTwitchPrediction('Who will win this game?', option1, option2);
+    if (prediction) {
+      activePrediction = {
+        id: prediction.id,
+        outcomes: prediction.outcomes,
+        player1: p1.name,
+        player2: p2.name,
+        matchId: lobby.idGame,
+        createdAt: Date.now(),
+      };
+      log.info('Twitch', `Prediction created: "${option1}" vs "${option2}" (id: ${prediction.id})`);
     }
-    pendingLobby = { player1: p1.name, player2: p2.name, matchId: lobby.idGame, option1, option2 };
   } catch (err) {
     log.error('Twitch', `checkForESOCLobby error: ${err.message}`);
   }
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Semi-automatic prediction controls (called via API from OBS dashboard)
+// Prediction controls (called via API from OBS dashboard)
 // ─────────────────────────────────────────────────────────────────
 
 function getPredictionStatus() {
@@ -677,27 +687,7 @@ function getPredictionStatus() {
   if (activePrediction) {
     return { state: 'active', player1: activePrediction.player1, player2: activePrediction.player2 };
   }
-  if (pendingLobby) {
-    return { state: 'ready', player1: pendingLobby.player1, player2: pendingLobby.player2, option1: pendingLobby.option1, option2: pendingLobby.option2 };
-  }
   return { state: 'idle' };
-}
-
-async function startPrediction() {
-  if (activePrediction) return { ok: false, error: 'A prediction is already active' };
-  if (!pendingLobby) return { ok: false, error: 'No ESOC Lobby A game detected yet' };
-  const { player1, player2, matchId, option1, option2 } = pendingLobby;
-  const prediction = await createTwitchPrediction('Who will win this game?', option1, option2);
-  if (!prediction) return { ok: false, error: 'Failed to create prediction on Twitch' };
-  activePrediction = {
-    id: prediction.id,
-    outcomes: prediction.outcomes,
-    player1, player2, matchId,
-    createdAt: Date.now(),
-  };
-  pendingLobby = null;
-  log.info('Twitch', `Prediction started by caster: "${option1}" vs "${option2}" (id: ${prediction.id})`);
-  return { ok: true };
 }
 
 async function endPrediction() {
@@ -1258,5 +1248,5 @@ module.exports = {
   getYouTubeAuthUrl, exchangeYouTubeCode,
   checkAndUpdateThumbnail,
   getRestreamAccessToken: getValidRestreamToken,
-  getPredictionStatus, startPrediction, endPrediction,
+  getPredictionStatus, endPrediction,
 };

@@ -3473,11 +3473,6 @@ app.get("/api/prediction/status", (_req, res) => {
   res.json(BotService.getPredictionStatus());
 });
 
-app.post("/api/prediction/start", async (_req, res) => {
-  const result = await BotService.startPrediction();
-  res.status(result.ok ? 200 : 400).json(result);
-});
-
 app.post("/api/prediction/end", async (_req, res) => {
   const result = await BotService.endPrediction();
   res.status(result.ok ? 200 : 400).json(result);
