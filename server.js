@@ -3468,6 +3468,21 @@ app.get("/api/restream/chat-token", async (_req, res) => {
   res.json({ token });
 });
 
+// ─── Semi-automatic Twitch prediction controls (called from OBS dashboard) ───
+app.get("/api/prediction/status", (_req, res) => {
+  res.json(BotService.getPredictionStatus());
+});
+
+app.post("/api/prediction/start", async (_req, res) => {
+  const result = await BotService.startPrediction();
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
+app.post("/api/prediction/end", async (_req, res) => {
+  const result = await BotService.endPrediction();
+  res.status(result.ok ? 200 : 400).json(result);
+});
+
 // GET /obs-dashboard — serves the ESOC Admin OBS dashboard (no auth; OBS loads it directly as a browser dock)
 app.get("/obs-dashboard", (_req, res) => {
   res.sendFile(path.join(__dirname, "obs-dashboard.html"));

@@ -279,6 +279,67 @@
         /* ── Match Info collapse ── */
         .match-form { overflow: hidden; max-height: 700px; transition: max-height 0.3s ease, opacity 0.25s ease; opacity: 1; }
         .match-form.collapsed { max-height: 0; opacity: 0; }
+
+        /* ── Prediction Panel ── */
+        .prediction-layout { display: flex; align-items: center; gap: 1rem; }
+
+        .prediction-info { flex: 1; min-width: 0; }
+        .prediction-state-label {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 800;
+            font-family: 'Cinzel', serif;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+        .prediction-matchup {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .btn-prediction {
+            flex-shrink: 0;
+            min-width: 160px;
+            padding: 0.55rem 1rem;
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            transition: background 0.2s, border-color 0.2s, opacity 0.2s, transform 0.1s;
+        }
+        .btn-prediction:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        .btn-prediction-grey {
+            background: linear-gradient(to bottom, #2e2e2e, #1a1a1a);
+            border-color: #444;
+            color: #888;
+        }
+        .btn-prediction-green {
+            background: linear-gradient(to bottom, #166534, #14532d);
+            border-color: #16a34a;
+            color: #bbf7d0;
+        }
+        .btn-prediction-green:hover:not(:disabled) {
+            background: linear-gradient(to bottom, #15803d, #166534);
+            border-color: #4ade80;
+            color: #fff;
+        }
+        .btn-prediction-red {
+            background: linear-gradient(to bottom, #7f1d1d, #450a0a);
+            border-color: #b91c1c;
+            color: #fecaca;
+        }
+        .btn-prediction-red:hover:not(:disabled) {
+            background: linear-gradient(to bottom, #991b1b, #7f1d1d);
+            border-color: #ef4444;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -317,6 +378,23 @@
                     <option value="EPL">EPL</option>
                 </select>
             </div>
+        </div>
+    </div>
+
+    <!-- Prediction Panel -->
+    <div class="glass-panel" style="animation-delay: 0.15s;">
+        <h2 class="panel-h2">Twitch Prediction</h2>
+        <div class="prediction-layout">
+            <div class="prediction-info">
+                <div class="prediction-state-label" id="pred-state-label">Checking…</div>
+                <div class="prediction-matchup" id="pred-matchup">—</div>
+            </div>
+            <button
+                id="pred-btn"
+                class="btn-prediction btn-prediction-grey"
+                disabled
+                onclick="handlePredictionClick()"
+            >Prediction</button>
         </div>
     </div>
 
@@ -759,7 +837,81 @@
             } catch (e) {}
         }
 
-        window.onload = () => { initUI(); connectOBS(); };
+        // ── Twitch Prediction controls ──────────────────────────────────────
+
+        let predictionPollTimer = null;
+
+        function applyPredictionState(data) {
+            const btn        = document.getElementById('pred-btn');
+            const stateLabel = document.getElementById('pred-state-label');
+            const matchup    = document.getElementById('pred-matchup');
+
+            // Reset classes
+            btn.classList.remove('btn-prediction-grey', 'btn-prediction-green', 'btn-prediction-red');
+
+            if (data.state === 'ready') {
+                stateLabel.textContent  = 'Game detected — ready to start';
+                matchup.textContent     = `${data.option1} vs ${data.option2}`;
+                btn.textContent         = '▶ Start Prediction';
+                btn.classList.add('btn-prediction-green');
+                btn.disabled            = false;
+            } else if (data.state === 'active') {
+                stateLabel.textContent  = 'Prediction live — voting open';
+                matchup.textContent     = `${data.player1} vs ${data.player2}`;
+                btn.textContent         = '◼ End Prediction';
+                btn.classList.add('btn-prediction-red');
+                btn.disabled            = false;
+            } else if (data.state === 'resolving') {
+                stateLabel.textContent  = `Result found — resolving in ${data.remaining}s`;
+                matchup.textContent     = `Winner: ${data.winner}`;
+                btn.textContent         = 'Resolving…';
+                btn.classList.add('btn-prediction-grey');
+                btn.disabled            = true;
+            } else {
+                stateLabel.textContent  = 'No game detected';
+                matchup.textContent     = '—';
+                btn.textContent         = 'Prediction';
+                btn.classList.add('btn-prediction-grey');
+                btn.disabled            = true;
+            }
+        }
+
+        async function pollPredictionStatus() {
+            try {
+                const resp = await fetch('/api/prediction/status');
+                if (resp.ok) applyPredictionState(await resp.json());
+            } catch (e) { /* server unreachable — keep existing UI state */ }
+        }
+
+        async function handlePredictionClick() {
+            const btn = document.getElementById('pred-btn');
+            const isStart = btn.textContent.includes('Start');
+
+            if (!isStart) {
+                const ok = confirm('Cancel the active Twitch prediction?\nViewers will be refunded — this cannot be undone.');
+                if (!ok) return;
+            }
+
+            btn.disabled = true; // prevent double-click during API call
+
+            try {
+                const endpoint = isStart ? '/api/prediction/start' : '/api/prediction/end';
+                const resp = await fetch(endpoint, { method: 'POST' });
+                const result = await resp.json();
+                if (!result.ok) alert('Error: ' + (result.error || 'Unknown error'));
+            } catch (e) {
+                alert('Could not reach server.');
+            }
+
+            await pollPredictionStatus(); // immediately reflect new state
+        }
+
+        window.onload = () => {
+            initUI();
+            connectOBS();
+            pollPredictionStatus();
+            predictionPollTimer = setInterval(pollPredictionStatus, 5000);
+        };
     </script>
 </body>
 </html>

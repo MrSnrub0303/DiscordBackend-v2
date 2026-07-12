@@ -116,6 +116,8 @@ let tmiClient = null;
 
 // Active prediction state — null when no prediction running
 let activePrediction = null; // { id, outcomes, player1, player2, createdAt }
+// Lobby detected but not yet started — caster must press button to activate
+let pendingLobby = null; // { player1, player2, matchId, option1, option2 }
 
 const status = {
   twitchLive: false,
@@ -635,15 +637,15 @@ async function cancelTwitchPrediction(predictionId) {
 async function checkForESOCLobby() {
   try {
     const resp = await fetch('https://api.freefoodparty.com/observablelist_all');
-    if (!resp.ok) return;
+    if (!resp.ok) { pendingLobby = null; return; }
     const raw = await resp.json();
     const games = Array.isArray(raw) ? raw : (raw.observableMatchInfo || raw.games || raw.data || []);
     const lobby = games.find(g => g.gameName?.toUpperCase().includes('ESOC LOBBY A'));
-    if (!lobby) return;
+    if (!lobby) { pendingLobby = null; return; }
 
     const allPlayers = lobby.obeservableMatchPlayerInfo || [];
     const players = allPlayers.filter(p => p.name !== null && p.idPlayer !== -1);
-    if (players.length < 2) return;
+    if (players.length < 2) { pendingLobby = null; return; }
 
     const p1 = players[0];
     const p2 = players[1];
@@ -653,22 +655,60 @@ async function checkForESOCLobby() {
     const option1 = `${p1.name} (${civ1})`.slice(0, 25);
     const option2 = `${p2.name} (${civ2})`.slice(0, 25);
 
-    log.info('Twitch', `ESOC Lobby A detected: ${p1.name} vs ${p2.name} — creating prediction`);
-    const prediction = await createTwitchPrediction('Who will win this game?', option1, option2);
-    if (prediction) {
-      activePrediction = {
-        id: prediction.id,
-        outcomes: prediction.outcomes, // [{ id, title }, ...]
-        player1: p1.name,
-        player2: p2.name,
-        matchId: lobby.idGame,
-        createdAt: Date.now(),
-      };
-      log.info('Twitch', `Prediction created: "${option1}" vs "${option2}" (id: ${prediction.id})`);
+    // Only update pendingLobby if the match ID changed (avoids noisy log spam every 30s)
+    if (!pendingLobby || pendingLobby.matchId !== lobby.idGame) {
+      log.info('Twitch', `ESOC Lobby A detected: ${p1.name} vs ${p2.name} — awaiting caster to start prediction`);
     }
+    pendingLobby = { player1: p1.name, player2: p2.name, matchId: lobby.idGame, option1, option2 };
   } catch (err) {
     log.error('Twitch', `checkForESOCLobby error: ${err.message}`);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Semi-automatic prediction controls (called via API from OBS dashboard)
+// ─────────────────────────────────────────────────────────────────
+
+function getPredictionStatus() {
+  if (activePrediction?.pendingOutcomeId) {
+    const remaining = Math.max(0, Math.ceil((5 * 60 * 1000 - (Date.now() - activePrediction.resultFoundAt)) / 1000));
+    return { state: 'resolving', winner: activePrediction.pendingWinner, remaining };
+  }
+  if (activePrediction) {
+    return { state: 'active', player1: activePrediction.player1, player2: activePrediction.player2 };
+  }
+  if (pendingLobby) {
+    return { state: 'ready', player1: pendingLobby.player1, player2: pendingLobby.player2, option1: pendingLobby.option1, option2: pendingLobby.option2 };
+  }
+  return { state: 'idle' };
+}
+
+async function startPrediction() {
+  if (activePrediction) return { ok: false, error: 'A prediction is already active' };
+  if (!pendingLobby) return { ok: false, error: 'No ESOC Lobby A game detected yet' };
+  const { player1, player2, matchId, option1, option2 } = pendingLobby;
+  const prediction = await createTwitchPrediction('Who will win this game?', option1, option2);
+  if (!prediction) return { ok: false, error: 'Failed to create prediction on Twitch' };
+  activePrediction = {
+    id: prediction.id,
+    outcomes: prediction.outcomes,
+    player1, player2, matchId,
+    createdAt: Date.now(),
+  };
+  pendingLobby = null;
+  log.info('Twitch', `Prediction started by caster: "${option1}" vs "${option2}" (id: ${prediction.id})`);
+  return { ok: true };
+}
+
+async function endPrediction() {
+  if (!activePrediction) return { ok: false, error: 'No active prediction to end' };
+  if (activePrediction.pendingOutcomeId) return { ok: false, error: 'Prediction is already resolving — cannot cancel' };
+  const ok = await cancelTwitchPrediction(activePrediction.id);
+  if (ok) {
+    log.info('Twitch', 'Prediction cancelled by caster.');
+    activePrediction = null;
+  }
+  return { ok, error: ok ? undefined : 'Twitch API call failed — check server logs' };
 }
 
 async function checkESOCLobbyResult() {
@@ -1218,4 +1258,5 @@ module.exports = {
   getYouTubeAuthUrl, exchangeYouTubeCode,
   checkAndUpdateThumbnail,
   getRestreamAccessToken: getValidRestreamToken,
+  getPredictionStatus, startPrediction, endPrediction,
 };
