@@ -691,11 +691,11 @@ function getPredictionStatus() {
 }
 
 async function endPrediction() {
-  if (!activePrediction) return { ok: false, error: 'No active prediction to end' };
-  if (activePrediction.pendingOutcomeId) return { ok: false, error: 'Prediction is already resolving — cannot cancel' };
-  const ok = await cancelTwitchPrediction(activePrediction.id);
+  if (!activePrediction) return { ok: false, error: 'No active prediction' };
+  if (!activePrediction.pendingOutcomeId) return { ok: false, error: 'Match result not yet determined — cannot resolve yet' };
+  const ok = await resolveTwitchPrediction(activePrediction.id, activePrediction.pendingOutcomeId);
   if (ok) {
-    log.info('Twitch', 'Prediction cancelled by caster.');
+    log.info('Twitch', `Prediction resolved by caster: ${activePrediction.pendingWinner} wins.`);
     activePrediction = null;
   }
   return { ok, error: ok ? undefined : 'Twitch API call failed — check server logs' };

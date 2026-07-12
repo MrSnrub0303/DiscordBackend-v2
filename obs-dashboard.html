@@ -841,13 +841,13 @@
             btn.classList.remove('btn-prediction-grey', 'btn-prediction-green', 'btn-prediction-red');
 
             if (data.state === 'active') {
-                btn.textContent = '◼ End Prediction';
-                btn.classList.add('btn-prediction-red');
-                btn.disabled = false;
-            } else if (data.state === 'resolving') {
                 btn.textContent = 'Prediction Active';
                 btn.classList.add('btn-prediction-green');
                 btn.disabled = true;
+            } else if (data.state === 'resolving') {
+                btn.textContent = '◼ End Prediction';
+                btn.classList.add('btn-prediction-red');
+                btn.disabled = false;
             } else {
                 btn.textContent = 'No Game Detected';
                 btn.classList.add('btn-prediction-grey');
@@ -863,15 +863,14 @@
         }
 
         async function handlePredictionClick() {
-            const ok = confirm('Cancel the active Twitch prediction?\nViewers will be refunded — this cannot be undone.');
-            if (!ok) return;
-
             const btn = document.getElementById('pred-btn');
             btn.disabled = true;
             try {
                 const resp = await fetch('/api/prediction/end', { method: 'POST' });
                 const result = await resp.json();
-                if (!result.ok) alert('Error: ' + (result.error || 'Unknown error'));
+                if (!result.ok) {
+                    alert('Error: ' + (result.error || 'Unknown error'));
+                }
             } catch (e) {
                 alert('Could not reach server.');
             }
