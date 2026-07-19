@@ -828,7 +828,7 @@ async function getLatestTournamentUrl() {
 
 async function checkEventsLoop() {
   while (true) {
-    await sleep(60000);
+    await sleep(300000);
     try {
       const accessToken = await getValidRestreamToken();
       if (!accessToken) { log.warn('Restream', 'No valid token — skipping title check.'); continue; }
@@ -879,7 +879,7 @@ async function checkEventsLoop() {
 
 async function syncEventsLoop() {
   while (true) {
-    await sleep(60000);
+    await sleep(300000);
     try {
       if (!discordClient?.isReady()) continue;
       const guild = discordClient.guilds.cache.get(DISCORD_GUILD_ID);

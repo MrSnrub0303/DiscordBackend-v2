@@ -43,6 +43,10 @@ const SCORING_EXPONENT = 2;
 const CODE_CACHE_TTL_MS = 30 * 1000;
 const codeExchangeCache = new Map();
 
+// Cloudflare IP-ban cooldown — when Discord's Cloudflare layer bans the server's
+// outbound IP, all token-exchange requests fail fast instead of sleeping for hours.
+let discordCloudflareBlockedUntil = 0;
+
 const cleanCodeExchangeCache = () => {
   const now = Date.now();
   for (const [code, entry] of codeExchangeCache.entries()) {
@@ -285,6 +289,10 @@ async function exchangeDiscordCode(req, res, label) {
 
   const MAX_RETRIES = 3;
   const BASE_DELAY_MS = 1000;
+  // Retry-After values above this threshold indicate a Cloudflare IP-level ban
+  // (not a normal Discord per-route rate limit). We never sleep through these —
+  // we fail fast and gate all subsequent requests until the ban expires.
+  const CLOUDFLARE_BAN_THRESHOLD_S = 60;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -298,11 +306,25 @@ async function exchangeDiscordCode(req, res, label) {
     console.log(`[Token ${label}] Attempt ${attempt} response status:`, resp.status);
     console.log(`[Token ${label}] Response content-type:`, resp.headers.get('content-type'));
 
-    // Rate limited — respect Retry-After header or use exponential backoff
     if (resp.status === 429) {
-      const retryAfter = resp.headers.get('retry-after');
-      const waitMs = retryAfter
-        ? parseFloat(retryAfter) * 1000
+      const retryAfterRaw = resp.headers.get('retry-after');
+      const retryAfterSec = retryAfterRaw ? parseFloat(retryAfterRaw) : 0;
+
+      // Cloudflare IP-level ban: Retry-After is huge and the body is HTML, not JSON.
+      // Never sleep through this — record the ban expiry and fail immediately.
+      if (retryAfterSec > CLOUDFLARE_BAN_THRESHOLD_S) {
+        discordCloudflareBlockedUntil = Date.now() + retryAfterSec * 1000;
+        const minutesLeft = Math.ceil(retryAfterSec / 60);
+        console.error(`[Token ${label}] Cloudflare IP ban detected — blocked for ~${minutesLeft} min. Failing fast.`);
+        throw Object.assign(
+          new Error(`Discord infrastructure rate limit — try again in ~${minutesLeft} minutes`),
+          { status: 429, isCloudflareban: true, retryAfterSec }
+        );
+      }
+
+      // Normal Discord per-route rate limit: short Retry-After, safe to retry.
+      const waitMs = retryAfterSec > 0
+        ? retryAfterSec * 1000
         : BASE_DELAY_MS * Math.pow(2, attempt - 1);
       console.warn(`[Token ${label}] Rate limited (429), waiting ${waitMs}ms before retry...`);
       if (attempt < MAX_RETRIES) {
@@ -316,18 +338,16 @@ async function exchangeDiscordCode(req, res, label) {
     if (!contentType || !contentType.includes('application/json')) {
       const textResponse = await resp.text();
       console.error(`[Token ${label}] Non-JSON response (status ${resp.status}):`, textResponse.substring(0, 200));
-      // Retry on 5xx or unexpected HTML (e.g. Cloudflare error pages)
       if (resp.status >= 500 && attempt < MAX_RETRIES) {
         const waitMs = BASE_DELAY_MS * Math.pow(2, attempt - 1);
         console.warn(`[Token ${label}] Server error, retrying in ${waitMs}ms...`);
         await sleep(waitMs);
         return attemptExchange(attempt + 1);
       }
-      const err = Object.assign(new Error('Invalid response from Discord API'), {
+      throw Object.assign(new Error('Invalid response from Discord API'), {
         status: resp.status,
         bodyPreview: textResponse.substring(0, 200),
       });
-      throw err;
     }
 
     const json = await resp.json();
@@ -349,6 +369,20 @@ async function exchangeDiscordCode(req, res, label) {
       return res.status(500).json({ error: "Server configuration error" });
     }
 
+    // Gate: if the server's IP is currently Cloudflare-banned, fail immediately
+    // without sending another request to Discord (which would just extend the ban).
+    if (Date.now() < discordCloudflareBlockedUntil) {
+      const secondsLeft = Math.ceil((discordCloudflareBlockedUntil - Date.now()) / 1000);
+      const minutesLeft = Math.ceil(secondsLeft / 60);
+      console.warn(`[Token ${label}] Cloudflare ban still active — ${secondsLeft}s remaining. Rejecting without calling Discord.`);
+      releaseCodeExchange(code);
+      return res.status(503).json({
+        error: "Service temporarily unavailable",
+        details: `Discord's infrastructure has rate-limited this server's IP. Please try again in ~${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.`,
+        retryAfterSeconds: secondsLeft,
+      });
+    }
+
     console.log(`[Token ${label}] Making request to Discord API...`);
 
     const json = await attemptExchange(1);
@@ -357,8 +391,16 @@ async function exchangeDiscordCode(req, res, label) {
     return res.json(json);
   } catch (err) {
     console.error(`[Token ${label}] Exception:`, err.message);
-    releaseCodeExchange(code); // allow retry on transient failure
+    releaseCodeExchange(code);
 
+    if (err.isCloudflareban) {
+      const minutesLeft = Math.ceil(err.retryAfterSec / 60);
+      return res.status(503).json({
+        error: "Service temporarily unavailable",
+        details: `Discord's infrastructure has rate-limited this server's IP. Please try again in ~${minutesLeft} minute${minutesLeft !== 1 ? 's' : ''}.`,
+        retryAfterSeconds: err.retryAfterSec,
+      });
+    }
     if (err.isRateLimit) {
       return res.status(429).json({
         error: "Discord rate limit exceeded",
@@ -3351,12 +3393,15 @@ async function isMonitorAuthorized(req) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
   if (!token) return false;
+  const cachedUser = getCachedTokenUser(token);
+  if (cachedUser) return MONITOR_USERNAMES.includes((cachedUser.username || "").toLowerCase());
   try {
     const resp = await fetch("https://discord.com/api/users/@me", {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!resp.ok) return false;
     const user = await resp.json();
+    setCachedTokenUser(token, user);
     const username = (user.username || "").toLowerCase();
     return MONITOR_USERNAMES.includes(username);
   } catch {
