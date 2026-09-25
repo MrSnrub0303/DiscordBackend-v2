@@ -376,6 +376,7 @@
                     <option value="Autumn">Autumn</option>
                     <option value="Winter">Winter</option>
                     <option value="EPL">EPL</option>
+                    <option value="WC26">WC26</option>
                 </select>
             </div>
         </div>
@@ -687,9 +688,9 @@
 
         async function setSeason(season) {
             const hypeReels = ['Spring Hype Reel', 'Summer Hype Reel', 'Autumn Hype Reel', 'Winter Hype Reel'];
-            const logos     = ['Spring Logo', 'Summer Logo', 'Autumn Logo', 'Winter Logo', 'EPL Logo'];
-            const hypeMap   = { Spring: 'Spring Hype Reel', Summer: 'Summer Hype Reel', Autumn: 'Autumn Hype Reel', Winter: 'Winter Hype Reel', EPL: 'Spring Hype Reel' };
-            const logoMap   = { Spring: 'Spring Logo',      Summer: 'Summer Logo',      Autumn: 'Autumn Logo',      Winter: 'Winter Logo',      EPL: 'EPL Logo' };
+            const logos     = ['Spring Logo', 'Summer Logo', 'Autumn Logo', 'Winter Logo', 'EPL Logo', 'WC26 Logo GIF'];
+            const hypeMap   = { Spring: 'Spring Hype Reel', Summer: 'Summer Hype Reel', Autumn: 'Autumn Hype Reel', Winter: 'Winter Hype Reel', EPL: 'Spring Hype Reel', WC26: 'Spring Hype Reel' };
+            const logoMap   = { Spring: 'Spring Logo',      Summer: 'Summer Logo',      Autumn: 'Autumn Logo',      Winter: 'Winter Logo',      EPL: 'EPL Logo', WC26: 'WC26 Logo GIF' };
             const activeReel = season ? hypeMap[season] : null;
 
             // Pre-stop ALL reels before touching visibility.
@@ -777,7 +778,7 @@
             // ── Season (inferred from which logo is enabled on Home Screen) ──
             const logoSeasonMap = {
                 'Spring Logo': 'Spring', 'Summer Logo': 'Summer',
-                'Autumn Logo': 'Autumn', 'Winter Logo': 'Winter', 'EPL Logo': 'EPL'
+                'Autumn Logo': 'Autumn', 'Winter Logo': 'Winter', 'EPL Logo': 'EPL', 'WC26 Logo GIF': 'WC26'
             };
             try {
                 const enabledLogos = await getEnabledSourceNames('Home Screen');
