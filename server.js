@@ -550,15 +550,6 @@ app.get("/api/analytics", async (req, res) => {
   }
 });
 
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: Date.now(),
-    message: "Server is running",
-    environment: "production",
-  });
-});
-
 app.get("/api/discord-test", (req, res) => {
   res.json({
     message: "Discord URL mapping is working!",

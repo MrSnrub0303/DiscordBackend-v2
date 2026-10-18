@@ -3,3 +3,4 @@ node_modules/
 *.log
 data/
 .steam_machine_auth
+.DS_Store
