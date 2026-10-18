@@ -1471,6 +1471,9 @@ app.post("/game-event", (req, res) => {
         if (data.roomId && rooms[data.roomId]) {
           const room = rooms[data.roomId];
 
+          // Update player's last seen timestamp
+          updatePlayerLastSeen(data.roomId, data.playerId);
+
           if (!room.currentSelections) {
             room.currentSelections = {};
           }
@@ -1743,7 +1746,7 @@ app.post("/game-event", (req, res) => {
 });
 
 // Player join endpoint - handles session timeout and score reset
-app.post("/api/player-join", (req, res) => {
+const playerJoinHandler = (req, res) => {
   const { roomId, playerId, playerName } = req.body;
   
   if (!roomId || !playerId) {
@@ -1807,7 +1810,11 @@ app.post("/api/player-join", (req, res) => {
     console.error("[player-join] Error:", error);
     res.status(500).json({ success: false, error: "Failed to process player join" });
   }
-});
+};
+
+// Discord's URL mapping strips the /api prefix, so the plain path is what runs in production
+app.post("/api/player-join", playerJoinHandler);
+app.post("/player-join",     playerJoinHandler);
 
 app.get("/api/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
@@ -1943,8 +1950,14 @@ app.get("/api/game-state/:roomId", (req, res) => {
 
 app.get("/game-state/:roomId", (req, res) => {
   const { roomId } = req.params;
+  const { playerId } = req.query; // Optional player ID for tracking
 
   try {
+    // Update player's last seen if playerId provided (used by player-join session timeout)
+    if (playerId && roomId) {
+      updatePlayerLastSeen(roomId, playerId);
+    }
+
     if (roomId && !rooms[roomId]) {
       rooms[roomId] = buildInitialRoomState();
     }
