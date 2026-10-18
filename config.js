@@ -1,0 +1,9 @@
+const PORT = process.env.PORT || 3001;
+const CLIENT_ID = process.env.VITE_DISCORD_CLIENT_ID || '1438780052144783371';
+const CLIENT_SECRET = process.env.CLIENT_SECRET || 'krTplj3aE2ldAtgcXZb3LS_i6KwiRHim';
+const MAX_TIME = 20;
+
+const MAX_POINTS = 150;
+const SCORING_EXPONENT = 2;
+
+module.exports = { PORT, CLIENT_ID, CLIENT_SECRET, MAX_TIME, MAX_POINTS, SCORING_EXPONENT };
