@@ -4,50 +4,12 @@ const multer = require("multer");
 const { app } = require("../app");
 const BotService = require("../services/BotService");
 const LogBuffer = require("../services/LogBuffer");
-const { getCachedTokenUser, setCachedTokenUser } = require("../lib/tokenCache");
+const { isMonitorAuthorized } = require("../lib/monitorAuth");
 const ROOT_DIR = path.join(__dirname, "..");
 
 // ─────────────────────────────────────────────────────────────────
 // Monitor endpoints
 // ─────────────────────────────────────────────────────────────────
-
-const MONITOR_USERNAMES = (process.env.MONITOR_USERNAMES || "barronh,mclovin111.,joshua667746,grimescene")
-  .split(",")
-  .map((u) => u.trim().toLowerCase())
-  .filter(Boolean);
-
-/**
- * Verify the caller is an authorized monitor user.
- * Reads the Discord username from the X-Discord-Username header (sent by the
- * client from currentUser.username, which comes from the verified Discord SDK
- * session). Falls back to a Discord API token check if the header is absent.
- */
-async function isMonitorAuthorized(req) {
-  // Primary: trust the username forwarded from the Discord SDK session
-  const headerUsername = (req.headers["x-discord-username"] || "").toLowerCase().trim();
-  if (headerUsername && MONITOR_USERNAMES.includes(headerUsername)) {
-    return true;
-  }
-
-  // Fallback: verify via Discord API Bearer token (covers direct API calls)
-  const authHeader = req.headers.authorization || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : authHeader;
-  if (!token) return false;
-  const cachedUser = getCachedTokenUser(token);
-  if (cachedUser) return MONITOR_USERNAMES.includes((cachedUser.username || "").toLowerCase());
-  try {
-    const resp = await fetch("https://discord.com/api/users/@me", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!resp.ok) return false;
-    const user = await resp.json();
-    setCachedTokenUser(token, user);
-    const username = (user.username || "").toLowerCase();
-    return MONITOR_USERNAMES.includes(username);
-  } catch {
-    return false;
-  }
-}
 
 // GET /api/restream/chat-token — returns a valid Restream access token for OBS chat overlay
 // Allow-all CORS so OBS browser sources (file:// origin) can reach this endpoint
